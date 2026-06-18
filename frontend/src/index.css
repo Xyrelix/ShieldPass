@@ -1,57 +1,41 @@
-@import url("https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400..700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap");
+@import "tailwindcss";
 
-:root {
-  --ink: #0b0e14;
-  --paper: #f7f5f0;
-  --verified: #1b7a5c;
-  --rust: #c75d3b;
-  --stone: #5a5447;
-  --hairline: rgba(247, 245, 240, 0.12);
-  --hairline-on-paper: rgba(11, 14, 20, 0.12);
+@layer base {
+  :root {
+    /* Color Palette Extracted from Logo */
+    --ink: #0c1117; /* Core application canvas background */
+    --rust: #4953c2; /* Signature electric indigo accent */
+    --paper: #f8f9fc; /* Primary readability text foreground */
 
-  --font-display: "Fraunces", serif;
-  --font-body: "Inter", sans-serif;
-  --font-mono: "JetBrains Mono", monospace;
-}
+    /* Supporting Design Tokens */
+    --stone: #707a94; /* Muted mid-tone text for subtitles/meta data */
+    --hairline: rgba(248, 249, 252, 0.08); /* Minimal technical borders */
+    --verified: #05c46b; /* High-visibility green for successful ZK compliance states */
+  }
 
-* {
-  box-sizing: border-box;
-}
+  body {
+    background-color: var(--ink);
+    color: var(--paper);
+    font-family:
+      ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+      "Courier New", monospace;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
 
-body {
-  margin: 0;
-  background: var(--ink);
-  color: var(--paper);
-  font-family: var(--font-body);
-}
-
-.font-display {
-  font-family: var(--font-display);
-}
-
-.font-mono {
-  font-family: var(--font-mono);
-  letter-spacing: -0.01em;
-}
-
-.hairline {
-  border-color: var(--hairline);
-}
-
-a {
-  color: inherit;
-}
-
-:focus-visible {
-  outline: 2px solid var(--rust);
-  outline-offset: 2px;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    animation-duration: 0.001ms !important;
-    transition-duration: 0.001ms !important;
+  /* Smooth custom crisp scrollbars for a clean dark interface */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: var(--ink);
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--hairline);
+    border-radius: 3px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--rust);
   }
 }
