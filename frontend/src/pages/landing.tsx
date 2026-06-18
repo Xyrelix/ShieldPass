@@ -1,6 +1,6 @@
-import { Link } from 'react-router-dom';
-import { WalletConnectButton } from '../components/wallet/WalletConnectButton';
-import { useAuthStore } from '../store/useAuthStore';
+import { Link } from "react-router-dom";
+import { WalletConnectButton } from "../components/wallet/WalletConnectButton";
+import { useAuthStore } from "../store/useAuthStore";
 
 export default function LandingPage() {
   const { walletAddress } = useAuthStore();
@@ -12,8 +12,8 @@ export default function LandingPage() {
           <span className="text-indigo-600">Shield</span>Pass
         </h1>
         <p className="mx-auto max-w-lg text-lg text-gray-600">
-          Prove you're compliant — KYC'd, not sanctioned, eligible country, 18+ — without revealing
-          your identity, documents, or which fact is which.
+          Prove you're compliant — KYC'd, not sanctioned, eligible country, 18+
+          — without revealing your identity, documents, or which fact is which.
         </p>
       </div>
 
@@ -29,7 +29,10 @@ export default function LandingPage() {
           </Link>
         )}
         {walletAddress && (
-          <Link to="/dashboard" className="text-sm text-indigo-600 underline hover:text-indigo-800">
+          <Link
+            to="/dashboard"
+            className="text-sm text-indigo-600 underline hover:text-indigo-800"
+          >
             View dashboard
           </Link>
         )}
@@ -38,18 +41,19 @@ export default function LandingPage() {
       <div className="mt-4 grid max-w-2xl grid-cols-1 gap-4 sm:grid-cols-3">
         {[
           {
-            title: 'Zero knowledge',
-            description: 'Your identity is checked once. Only a cryptographic proof goes on-chain.',
+            title: "Zero knowledge",
+            description:
+              "Your identity is checked once. Only a cryptographic proof goes on-chain.",
           },
           {
-            title: 'In-browser proving',
+            title: "In-browser proving",
             description:
-              'The ZK proof is generated entirely in your browser — nothing private leaves your device.',
+              "The ZK proof is generated entirely in your browser — nothing private leaves your device.",
           },
           {
-            title: 'Stellar-native',
+            title: "Stellar-native",
             description:
-              'Payments gate on a verified nullifier recorded in a Soroban smart contract.',
+              "Payments gate on a verified nullifier recorded in a Soroban smart contract.",
           },
         ].map((f) => (
           <div
