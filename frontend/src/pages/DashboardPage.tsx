@@ -1,14 +1,27 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
+import { motion } from "motion/react";
 import { getTradeHistory } from "../lib/api";
 import { getAccountBalances } from "../lib/stellar";
 import WalletConnectButton from "../components/WalletConnectButton";
 import type { Balance, TradeHistoryItem } from "../types";
 
-// Dashboard — Implementation.md section 9.5.
-// Balances come straight from Horizon for the connected wallet; trade
-// history comes from the backend's P2POffer records. Nothing here is
-// mocked — both reads hit the real Stellar testnet and the real database.
+const fadeUp = {
+  hidden: { opacity: 0, y: 24 },
+  visible: {
+    opacity: 1,
+    y: 0,
+    transition: { duration: 0.6, ease: [0.25, 0.4, 0.25, 1] as any },
+  },
+};
+
+const stagger = {
+  hidden: { opacity: 0 },
+  visible: {
+    opacity: 1,
+    transition: { staggerChildren: 0.1, delayChildren: 0.15 },
+  },
+};
 
 export default function DashboardPage() {
   const [walletAddress, setWalletAddress] = useState<string | null>(null);
@@ -48,119 +61,168 @@ export default function DashboardPage() {
   }, [walletAddress]);
 
   return (
-    <div className="min-h-screen text-[var(--paper)] px-6 md:px-12 py-12">
-      <div className="max-w-3xl mx-auto">
-        <div className="flex items-baseline justify-between mb-8">
-          <h1 className="font-display text-3xl">Dashboard</h1>
+    <motion.div
+      className="flex flex-col items-center w-full pb-20"
+      variants={stagger}
+      initial="hidden"
+      animate="visible"
+    >
+      <div className="w-full max-w-4xl">
+        <motion.div
+          variants={fadeUp}
+          className="flex flex-col md:flex-row md:items-baseline justify-between mb-10 gap-4"
+        >
+          <h1 className="geist-heading text-4xl md:text-5xl">Dashboard</h1>
           <Link
             to="/marketplace"
-            className="font-mono text-xs text-[var(--stone)] hover:text-[var(--paper)] transition-colors"
+            className="outline-btn px-5 py-2.5 rounded-full font-mono text-xs flex items-center gap-2 group"
           >
-            Marketplace →
+            Marketplace
+            <svg className="w-3 h-3 group-hover:translate-x-1 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7m0 0l-7 7m7-7H3" />
+            </svg>
           </Link>
-        </div>
+        </motion.div>
 
-        <div className="mb-10">
+        <motion.div variants={fadeUp} className="mb-12">
           <WalletConnectButton
             connectedAddress={walletAddress}
             onConnect={setWalletAddress}
           />
-        </div>
+        </motion.div>
 
         {!walletAddress && (
-          <p className="text-[var(--stone)] text-sm">
-            Connect a wallet to see balances and trade history.
-          </p>
+          <motion.div
+            variants={fadeUp}
+            className="outline-card rounded-[2rem] p-12 text-center"
+          >
+            <svg className="w-12 h-12 mx-auto mb-4 opacity-20" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
+            </svg>
+            <p className="opacity-60">
+              Connect your Stellar wallet to view on-chain balances and escrow history.
+            </p>
+          </motion.div>
         )}
 
         {walletAddress && (
           <>
-            <section className="mb-10">
-              <h2 className="font-display text-xl mb-4">Balances</h2>
+            <motion.section variants={fadeUp} className="mb-12">
+              <h2 className="geist-heading text-2xl mb-6 flex items-center gap-2">
+                <svg className="w-5 h-5 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
+                </svg> 
+                Balances
+              </h2>
 
               {balancesLoading && (
-                <p className="text-[var(--stone)] text-sm">Loading balances…</p>
+                <div className="flex items-center gap-3 opacity-60 text-sm outline-card p-6 rounded-2xl">
+                  <svg className="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  Querying Horizon node…
+                </div>
               )}
               {balancesError && (
-                <p className="text-[var(--rust)] text-sm">{balancesError}</p>
+                <p className="text-red-400 text-sm outline-card border-red-500/30 p-6 rounded-2xl">{balancesError}</p>
               )}
 
               {!balancesLoading && !balancesError && (
-                <div className="grid sm:grid-cols-2 gap-px bg-[var(--hairline)] border border-[var(--hairline)]">
+                <div className="grid sm:grid-cols-2 gap-4">
                   {balances.length === 0 ? (
-                    <div className="bg-black/30 backdrop-blur-sm p-6">
-                      <p className="text-[var(--stone)] text-sm">
+                    <div className="outline-card rounded-2xl p-8 text-center col-span-2">
+                      <p className="opacity-60">
                         No balances on this account yet.
                       </p>
                     </div>
                   ) : (
                     balances.map((b) => (
-                      <div
+                      <motion.div
                         key={b.assetCode}
-                        className="bg-black/30 backdrop-blur-sm p-6"
+                        variants={fadeUp}
+                        className="outline-card rounded-2xl p-8"
                       >
-                        <p className="font-mono text-xs text-[var(--stone)] mb-2">
+                        <p className="font-mono text-xs opacity-50 mb-3 uppercase tracking-widest">
                           {b.assetCode}
                         </p>
-                        <p className="font-mono text-2xl">{b.balance}</p>
-                      </div>
+                        <p className="geist-heading text-4xl">
+                          {b.balance}
+                        </p>
+                      </motion.div>
                     ))
                   )}
                 </div>
               )}
-            </section>
+            </motion.section>
 
-            <section>
-              <h2 className="font-display text-xl mb-4">Trade history</h2>
+            <motion.section variants={fadeUp}>
+              <h2 className="geist-heading text-2xl mb-6 flex items-center gap-2">
+                <svg className="w-5 h-5 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+                </svg>
+                Trade History
+              </h2>
 
               {historyLoading && (
-                <p className="text-[var(--stone)] text-sm">Loading trades…</p>
+                <div className="flex items-center gap-3 opacity-60 text-sm outline-card p-6 rounded-2xl">
+                  <svg className="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  Loading trade history…
+                </div>
               )}
               {historyError && (
-                <p className="text-[var(--rust)] text-sm">{historyError}</p>
+                <p className="text-red-400 text-sm outline-card border-red-500/30 p-6 rounded-2xl">{historyError}</p>
               )}
 
               {!historyLoading && !historyError && history.length === 0 && (
-                <p className="text-[var(--stone)] text-sm">
-                  No trades yet — offers you accept or fill will show up here.
-                </p>
+                <div className="outline-card rounded-2xl p-8 text-center">
+                  <p className="opacity-60">
+                    No trades yet. Your escrow interactions will appear here.
+                  </p>
+                </div>
               )}
 
               {!historyLoading && !historyError && history.length > 0 && (
-                <div className="border border-[var(--hairline)] rounded-sm divide-y divide-[var(--hairline)]">
-                  {history.map((trade) => (
-                    <div
+                <div className="outline-card rounded-2xl overflow-hidden divide-y divide-white/5">
+                  {history.map((trade, i) => (
+                    <motion.div
                       key={trade.id}
-                      className="flex items-center justify-between px-6 py-5"
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: i * 0.05, duration: 0.3 }}
+                      className="flex flex-col sm:flex-row items-start sm:items-center justify-between p-6 hover:bg-white/[0.02] transition-colors gap-4"
                     >
-                      <div className="flex items-baseline gap-6">
-                        <span className="font-mono text-xs uppercase tracking-widest text-[var(--stone)] w-14">
+                      <div className="flex flex-col sm:flex-row items-start sm:items-baseline gap-2 sm:gap-6 w-full">
+                        <span className="font-mono text-xs uppercase tracking-widest opacity-50 w-16">
                           {trade.role}
                         </span>
-                        <span className="font-mono text-sm">
+                        <span className="geist-heading text-xl">
                           {trade.cryptoAmount} {trade.assetType}
                         </span>
-                        <span className="text-[var(--stone)] text-sm">
+                        <span className="font-mono text-sm opacity-60">
                           ₦{trade.nairaAmount}
                         </span>
                       </div>
                       <span
-                        className={`font-mono text-xs ${
+                        className={`font-mono text-xs px-3 py-1 rounded-full outline-style shadow-none ${
                           trade.status === "completed"
-                            ? "text-[var(--verified)]"
-                            : "text-[var(--stone)]"
+                            ? "text-green-400 border-green-400/20 bg-green-400/5"
+                            : "opacity-60"
                         }`}
                       >
                         {trade.status}
                       </span>
-                    </div>
+                    </motion.div>
                   ))}
                 </div>
               )}
-            </section>
+            </motion.section>
           </>
         )}
       </div>
-    </div>
+    </motion.div>
   );
 }

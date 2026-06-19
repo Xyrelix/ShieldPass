@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { isConnected, isAllowed, setAllowed, getAddress } from "@stellar/freighter-api";
 
 interface WalletConnectButtonProps {
   connectedAddress: string | null;
@@ -19,28 +20,16 @@ export default function WalletConnectButton({
 
     setIsConnecting(true);
     try {
-      // Check for native Freighter Injection interface
-      if (
-        typeof window !== "undefined" && (window as any).stellar ? true : false
-      ) {
-        console.log(
-          "Freighter provider verified. Dispatched initialization challenge...",
-        );
+      if (await isConnected()) {
+        const allowed = await isAllowed();
+        if (!allowed) {
+          await setAllowed();
+        }
+        const publicKey = await getAddress();
+        onConnect(publicKey.address || null);
+      } else {
+        alert("Please install the Freighter wallet extension to connect.");
       }
-
-      // Simulate connection lifecycle delay
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-
-      // Mock random valid public testnet account address for developer sandbox stability
-      const mockStellarAddress =
-        "G" +
-        Array.from(
-          { length: 55 },
-          () =>
-            "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"[Math.floor(Math.random() * 32)],
-        ).join("");
-
-      onConnect(mockStellarAddress);
     } catch (err) {
       console.error("Wallet connection rejected:", err);
     } finally {
@@ -52,12 +41,13 @@ export default function WalletConnectButton({
     <button
       onClick={handleToggleConnect}
       disabled={isConnecting}
-      className={`font-mono text-xs uppercase tracking-widest border px-5 py-3 rounded-sm font-medium transition-colors ${
-        connectedAddress
-          ? "border-[var(--hairline)] text-[var(--stone)] hover:text-[var(--rust)] hover:border-[var(--rust)]"
-          : "border-[var(--rust)] text-[var(--rust)] hover:bg-[var(--rust)] hover:text-[var(--ink)]"
+      className={`outline-btn font-mono text-[10px] sm:text-xs uppercase tracking-widest px-4 py-2 sm:px-5 sm:py-2.5 rounded-lg font-medium transition-all duration-300 flex items-center justify-center gap-2 ${
+        connectedAddress ? "opacity-70 hover:opacity-100" : "primary"
       }`}
     >
+      <svg className="w-3.5 h-3.5 sm:w-4 sm:h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
+      </svg>
       {isConnecting && "Connecting Wallet…"}
       {!isConnecting &&
         connectedAddress &&

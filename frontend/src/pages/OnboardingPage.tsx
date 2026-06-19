@@ -1,13 +1,27 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { motion } from "motion/react";
 import { submitBvn, issueAttestation } from "../lib/api";
 import type { ComplianceAttestation } from "../types";
 
-// Onboarding page — Implementation.md section 9.2.
-// Mock BVN entry: a 10-digit number that auto-approves, standing in for a
-// real identity provider (section 1, "What's mocked").
-
 type Stage = "form" | "submitting" | "issuing" | "done" | "error";
+
+const fadeUp = {
+  hidden: { opacity: 0, y: 24 },
+  visible: {
+    opacity: 1,
+    y: 0,
+    transition: { duration: 0.6, ease: [0.25, 0.4, 0.25, 1] as any },
+  },
+};
+
+const stagger = {
+  hidden: { opacity: 0 },
+  visible: {
+    opacity: 1,
+    transition: { staggerChildren: 0.1, delayChildren: 0.2 },
+  },
+};
 
 export default function OnboardingPage() {
   const navigate = useNavigate();
@@ -39,11 +53,6 @@ export default function OnboardingPage() {
 
       setStage("issuing");
       const result = await issueAttestation();
-
-      // The secret_salt and merkle path are the user's private proving material.
-      // Per Implementation.md section 5: "DO NOT store salt server-side" — so the
-      // client is the only place this can persist. A real build should encrypt
-      // this at rest (e.g. wrapped by a device key) rather than storing it plain.
       localStorage.setItem("shieldpass_attestation", JSON.stringify(result));
 
       setAttestation(result);
@@ -59,25 +68,45 @@ export default function OnboardingPage() {
   }
 
   return (
-    <div className="min-h-screen text-[var(--paper)] flex items-center justify-center px-6">
-      <div className="w-full max-w-md">
-        <p className="font-mono text-xs uppercase tracking-widest text-[var(--rust)] mb-3">
+    <div className="flex items-center justify-center w-full py-12">
+      <motion.div
+        className="w-full max-w-lg outline-style rounded-[2rem] p-8 md:p-12 backdrop-blur-xl relative overflow-hidden"
+        variants={stagger}
+        initial="hidden"
+        animate="visible"
+      >
+        <motion.p
+          variants={fadeUp}
+          className="font-mono text-xs uppercase tracking-widest text-blue-400 mb-4"
+        >
           Step 1 of 1
-        </p>
-        <h1 className="font-display text-3xl mb-2">Verify your identity</h1>
-        <p className="text-[var(--stone)] text-sm mb-8">
+        </motion.p>
+        <motion.h1
+          variants={fadeUp}
+          className="geist-heading text-3xl md:text-4xl mb-4"
+        >
+          Verify your identity
+        </motion.h1>
+        <motion.p
+          variants={fadeUp}
+          className="opacity-60 text-sm mb-10 leading-relaxed font-light"
+        >
           This demo uses a mock BVN check. Enter any 10-digit number — in
           production this step calls a licensed provider like Paystack or Mono.
-        </p>
+        </motion.p>
 
         {stage !== "done" && (
-          <form onSubmit={handleSubmit} className="space-y-4">
+          <motion.form
+            variants={fadeUp}
+            onSubmit={handleSubmit}
+            className="space-y-6"
+          >
             <div>
               <label
                 htmlFor="bvn"
-                className="block text-sm text-[var(--stone)] mb-2"
+                className="block text-sm opacity-80 mb-3"
               >
-                BVN
+                Bank Verification Number
               </label>
               <input
                 id="bvn"
@@ -88,12 +117,18 @@ export default function OnboardingPage() {
                 onChange={(e) => setBvn(e.target.value.replace(/\D/g, ""))}
                 placeholder="2211XXXXXX"
                 disabled={stage === "submitting" || stage === "issuing"}
-                className="font-mono w-full bg-transparent border border-[var(--hairline)] rounded-sm px-4 py-3 text-[var(--paper)] placeholder:text-[var(--stone)]/60 focus:border-[var(--rust)] transition-colors"
+                className="font-mono w-full outline-style rounded-xl px-5 py-4 text-white placeholder:text-white/30 focus:border-white/40 transition-colors outline-none"
               />
             </div>
 
             {stage === "error" && errorMessage && (
-              <p className="text-sm text-[var(--rust)]">{errorMessage}</p>
+              <motion.p
+                initial={{ opacity: 0, x: -10 }}
+                animate={{ opacity: 1, x: 0 }}
+                className="text-sm text-red-400"
+              >
+                {errorMessage}
+              </motion.p>
             )}
 
             <button
@@ -101,43 +136,57 @@ export default function OnboardingPage() {
               disabled={
                 !isValidBvn || stage === "submitting" || stage === "issuing"
               }
-              className="w-full bg-[var(--rust)] text-[var(--ink)] font-medium px-6 py-3 rounded-sm disabled:opacity-40 disabled:cursor-not-allowed hover:bg-[var(--rust)]/90 transition-colors"
+              className="outline-btn primary w-full font-semibold px-6 py-4 rounded-xl flex items-center justify-center gap-2"
             >
+              {(stage === "submitting" || stage === "issuing") && (
+                <svg className="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+              )}
               {stage === "submitting" && "Checking BVN…"}
               {stage === "issuing" && "Issuing attestation…"}
-              {(stage === "form" || stage === "error") && "Continue"}
+              {(stage === "form" || stage === "error") && "Continue to Protocol"}
             </button>
-          </form>
+          </motion.form>
         )}
 
         {stage === "done" && attestation && (
-          <div className="border border-[var(--hairline)] rounded-sm p-6">
-            <p className="text-[var(--verified)] text-sm font-medium mb-4">
-              ✓ Verified — attestation issued
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ duration: 0.5 }}
+            className="outline-card rounded-2xl p-6"
+          >
+            <p className="text-green-400 text-sm font-medium mb-6 flex items-center gap-3">
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              Verified — attestation issued
             </p>
-            <dl className="space-y-3 font-mono text-xs text-[var(--stone)]">
+            <dl className="space-y-4 font-mono text-xs opacity-80">
               <div>
-                <dt className="mb-1">Merkle root</dt>
-                <dd className="text-[var(--paper)] break-all">
+                <dt className="mb-2 opacity-60">Merkle root</dt>
+                <dd className="break-all outline-style p-3 rounded-lg bg-white/[0.02]">
                   {attestation.merkleRoot}
                 </dd>
               </div>
               <div>
-                <dt className="mb-1">Secret salt (kept on this device only)</dt>
-                <dd className="text-[var(--paper)] break-all">
+                <dt className="mb-2 opacity-60">Secret salt (kept on this device only)</dt>
+                <dd className="break-all outline-style p-3 rounded-lg bg-white/[0.02]">
                   {attestation.secretSalt}
                 </dd>
               </div>
             </dl>
             <button
               onClick={() => navigate("/marketplace")}
-              className="mt-6 w-full bg-[var(--verified)] text-[var(--ink)] font-medium px-6 py-3 rounded-sm hover:bg-[var(--verified)]/90 transition-colors"
+              className="outline-btn success mt-8 w-full font-semibold px-6 py-4 rounded-xl"
             >
-              Enter marketplace
+              Enter Marketplace
             </button>
-          </div>
+          </motion.div>
         )}
-      </div>
+      </motion.div>
     </div>
   );
 }

@@ -14,6 +14,8 @@ import OnboardingPage from "./pages/OnboardingPage";
 import MarketplacePage from "./pages/MarketplacePage";
 import TradeRoomPage from "./pages/TradeRoomPage";
 import DashboardPage from "./pages/DashboardPage";
+import AboutPage from "./pages/AboutPage";
+import DocsPage from "./pages/DocsPage";
 
 export default function App() {
   // Lift wallet state globally so the dashboard and trading rooms sync smoothly
@@ -23,7 +25,15 @@ export default function App() {
     <Router>
       <Routes>
         {/* The Landing Page renders standalone to maintain its clean, minimal intro design */}
-        <Route path="/" element={<LandingPage />} />
+        <Route 
+          path="/" 
+          element={
+            <LandingPage 
+              connectedAddress={connectedAddress} 
+              onConnect={setConnectedAddress} 
+            />
+          } 
+        />
 
         {/* Core application features are wrapped in your matching MainLayout shell */}
         <Route
@@ -86,6 +96,38 @@ export default function App() {
               }
             >
               <DashboardPage />
+            </MainLayout>
+          }
+        />
+
+        <Route
+          path="/about"
+          element={
+            <MainLayout
+              walletComponent={
+                <WalletConnectButton
+                  connectedAddress={connectedAddress}
+                  onConnect={setConnectedAddress}
+                />
+              }
+            >
+              <AboutPage />
+            </MainLayout>
+          }
+        />
+
+        <Route
+          path="/docs"
+          element={
+            <MainLayout
+              walletComponent={
+                <WalletConnectButton
+                  connectedAddress={connectedAddress}
+                  onConnect={setConnectedAddress}
+                />
+              }
+            >
+              <DocsPage />
             </MainLayout>
           }
         />

@@ -1,17 +1,31 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { motion } from "motion/react";
 import { listOffers, acceptOffer, submitProof } from "../lib/api";
 import { generateKycProof } from "../lib/proof";
 import type { ComplianceAttestation, P2POffer } from "../types";
-
-// P2P Marketplace (order book) — Implementation.md section 9.3.
-// Accepting an offer triggers in-browser proof generation (sequence steps 5-7
-// in section 2) before the trade room unlocks.
 
 type AcceptingState = {
   offerId: string;
   phase: "proving" | "verifying";
 } | null;
+
+const fadeUp = {
+  hidden: { opacity: 0, y: 24 },
+  visible: {
+    opacity: 1,
+    y: 0,
+    transition: { duration: 0.6, ease: [0.25, 0.4, 0.25, 1] as any },
+  },
+};
+
+const stagger = {
+  hidden: { opacity: 0 },
+  visible: {
+    opacity: 1,
+    transition: { staggerChildren: 0.08, delayChildren: 0.15 },
+  },
+};
 
 export default function MarketplacePage() {
   const navigate = useNavigate();
@@ -75,59 +89,112 @@ export default function MarketplacePage() {
   }
 
   return (
-    <div className="min-h-screen text-[var(--paper)] px-6 md:px-12 py-12">
-      <div className="flex items-baseline justify-between mb-8">
-        <h1 className="font-display text-3xl">Marketplace</h1>
-        <p className="font-mono text-xs text-[var(--stone)]">
-          {offers.length} open offers
-        </p>
-      </div>
+    <motion.div
+      className="flex flex-col items-center w-full pb-20"
+      variants={stagger}
+      initial="hidden"
+      animate="visible"
+    >
+      <div className="w-full max-w-4xl">
+        <motion.div
+          variants={fadeUp}
+          className="flex flex-col md:flex-row md:items-baseline justify-between mb-12 gap-4"
+        >
+          <h1 className="geist-heading text-4xl md:text-5xl">Marketplace</h1>
+          <p className="font-mono text-sm opacity-50 bg-white/5 px-4 py-2 rounded-full backdrop-blur-md outline-style border-x-0 border-y-0 shadow-none">
+            {offers.length} OPEN OFFERS
+          </p>
+        </motion.div>
 
-      {loading && (
-        <p className="text-[var(--stone)] text-sm">Loading offers…</p>
-      )}
-      {loadError && <p className="text-[var(--rust)] text-sm">{loadError}</p>}
-      {acceptError && (
-        <p className="text-[var(--rust)] text-sm mb-4">{acceptError}</p>
-      )}
+        {loading && (
+          <motion.div
+            variants={fadeUp}
+            className="flex items-center gap-3 opacity-60 text-sm outline-style p-6 rounded-2xl"
+          >
+            <svg className="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+            Synchronizing order book…
+          </motion.div>
+        )}
+        {loadError && (
+          <motion.div variants={fadeUp} className="outline-style p-6 rounded-2xl border-red-500/30">
+            <p className="text-red-400 text-sm">{loadError}</p>
+          </motion.div>
+        )}
+        {acceptError && (
+          <motion.div
+            initial={{ opacity: 0, x: -10 }}
+            animate={{ opacity: 1, x: 0 }}
+            className="outline-style p-6 rounded-2xl border-red-500/30 mb-6"
+          >
+            <p className="text-red-400 text-sm">{acceptError}</p>
+          </motion.div>
+        )}
 
-      {!loading && !loadError && offers.length === 0 && (
-        <p className="text-[var(--stone)] text-sm">
-          No open offers right now. Check back shortly.
-        </p>
-      )}
+        {!loading && !loadError && offers.length === 0 && (
+          <motion.div variants={fadeUp} className="outline-style p-10 rounded-3xl text-center">
+            <p className="opacity-60">
+              No open offers right now. Liquidity providers are inactive.
+            </p>
+          </motion.div>
+        )}
 
-      <div className="border border-[var(--hairline)] rounded-sm divide-y divide-[var(--hairline)]">
-        {offers.map((offer) => {
-          const isBusy = accepting?.offerId === offer.id;
-          return (
-            <div
-              key={offer.id}
-              className="flex items-center justify-between px-6 py-5 hover:bg-white/[0.03] transition-colors"
-            >
-              <div className="flex items-baseline gap-6">
-                <span className="font-mono text-lg">
-                  {offer.cryptoAmount} {offer.assetType}
-                </span>
-                <span className="text-[var(--stone)] text-sm">
-                  ₦{offer.nairaRate} / {offer.assetType}
-                </span>
-              </div>
-              <button
-                onClick={() => handleAccept(offer)}
-                disabled={isBusy || accepting !== null}
-                className="font-mono text-sm border border-[var(--rust)] text-[var(--rust)] px-4 py-2 rounded-sm hover:bg-[var(--rust)] hover:text-[var(--ink)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+        <div className="flex flex-col gap-4">
+          {offers.map((offer) => {
+            const isBusy = accepting?.offerId === offer.id;
+            return (
+              <motion.div
+                key={offer.id}
+                variants={fadeUp}
+                className="outline-card interactive rounded-2xl flex flex-col md:flex-row items-center justify-between p-6 md:p-8 gap-6"
               >
-                {isBusy &&
-                  accepting?.phase === "proving" &&
-                  "Generating proof…"}
-                {isBusy && accepting?.phase === "verifying" && "Verifying…"}
-                {!isBusy && "Accept offer"}
-              </button>
-            </div>
-          );
-        })}
+                <div className="flex flex-col md:flex-row items-center md:items-baseline gap-4 md:gap-8 w-full md:w-auto text-center md:text-left">
+                  <span className="geist-heading text-3xl">
+                    {offer.cryptoAmount} {offer.assetType}
+                  </span>
+                  <span className="font-mono text-sm opacity-60">
+                    ₦{offer.nairaRate} / {offer.assetType}
+                  </span>
+                </div>
+                <button
+                  onClick={() => handleAccept(offer)}
+                  disabled={isBusy || accepting !== null}
+                  className="outline-btn primary w-full md:w-auto px-8 py-3.5 rounded-xl font-semibold flex items-center justify-center gap-2"
+                >
+                  {isBusy && accepting?.phase === "proving" && (
+                    <>
+                      <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                      </svg>
+                      Generating proof…
+                    </>
+                  )}
+                  {isBusy && accepting?.phase === "verifying" && (
+                    <>
+                      <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                      </svg>
+                      Verifying on-chain…
+                    </>
+                  )}
+                  {!isBusy && (
+                    <>
+                      Accept Offer
+                      <svg className="w-4 h-4 opacity-70" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7m0 0l-7 7m7-7H3" />
+                      </svg>
+                    </>
+                  )}
+                </button>
+              </motion.div>
+            );
+          })}
+        </div>
       </div>
-    </div>
+    </motion.div>
   );
 }
