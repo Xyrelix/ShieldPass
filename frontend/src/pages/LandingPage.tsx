@@ -140,7 +140,7 @@ export default function LandingPage({ connectedAddress, onConnect }: LandingPage
         dark: "#0a0a0a",
       }}
       logo="SHIELDPASS"
-      menuItems={["Marketplace", "Dashboard", "Onboarding", "Trade"]}
+      menuItems={["Marketplace", "Dashboard", "Onboarding"]}
     />
   );
 }

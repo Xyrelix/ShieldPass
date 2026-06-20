@@ -1,5 +1,9 @@
 @import "tailwindcss";
 
+@theme {
+  --font-sans: 'Geist', ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-mono: 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
 @layer base {
   :root {
     /* Color Palette Extracted from Logo */
@@ -20,9 +24,13 @@
     overflow-x: hidden;
   }
 
-  /* Force white text globally to match the premium dark theme requirements */
-  .text-white-important, .text-white, h1, h2, h3, h4, h5, h6, p, span, a, footer, nav, label, input, button { 
-    color: #fff !important; 
+  /* Set standard premium defaults without breaking Tailwind's utility colors */
+  h1, h2, h3, h4, h5, h6, input, button, select, textarea {
+    color: #ffffff;
+  }
+  
+  .text-white-important {
+    color: #ffffff !important;
   }
 
   /* Smooth custom crisp scrollbars for a clean dark interface */
@@ -71,8 +79,6 @@
   border: 2px solid rgba(255,255,255,0.10) !important;
   background: transparent;
   box-shadow: none;
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
   transition: all 0.3s ease;
 }
 
@@ -410,3 +416,116 @@
     height: 80px;
   }
 }
+
+/* Ambient Glow Orbs */
+.glow-orb {
+  position: fixed;
+  border-radius: 50%;
+  filter: blur(140px);
+  opacity: 0.15;
+  pointer-events: none;
+  z-index: -5;
+  transition: all 1s ease-in-out;
+}
+
+.glow-orb-1 {
+  width: 500px;
+  height: 500px;
+  background: radial-gradient(circle, rgba(99, 102, 241, 0.8) 0%, rgba(139, 92, 246, 0.2) 70%, transparent 100%);
+  top: -10%;
+  left: -10%;
+  animation: float-orb-1 25s infinite alternate ease-in-out;
+}
+
+.glow-orb-2 {
+  width: 600px;
+  height: 600px;
+  background: radial-gradient(circle, rgba(236, 72, 153, 0.6) 0%, rgba(139, 92, 246, 0.15) 70%, transparent 100%);
+  bottom: -15%;
+  right: -10%;
+  animation: float-orb-2 30s infinite alternate ease-in-out;
+}
+
+.glow-orb-3 {
+  width: 400px;
+  height: 400px;
+  background: radial-gradient(circle, rgba(6, 255, 165, 0.5) 0%, rgba(99, 102, 241, 0.1) 70%, transparent 100%);
+  top: 40%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  animation: float-orb-3 20s infinite alternate ease-in-out;
+}
+
+@keyframes float-orb-1 {
+  0% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(100px, 80px) scale(1.1); }
+  100% { transform: translate(-50px, 40px) scale(0.95); }
+}
+
+@keyframes float-orb-2 {
+  0% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(-80px, -120px) scale(0.9); }
+  100% { transform: translate(60px, -40px) scale(1.1); }
+}
+
+@keyframes float-orb-3 {
+  0% { transform: translate(-50%, -50%) scale(1); }
+  50% { transform: translate(-30%, -60%) scale(1.15); }
+  100% { transform: translate(-70%, -40%) scale(0.9); }
+}
+
+/* Fall-in Light Rays */
+.light-rays {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: -4;
+  overflow: hidden;
+  opacity: 0.18;
+}
+
+.light-ray {
+  position: absolute;
+  top: -50%;
+  width: 2px;
+  height: 150%;
+  background: linear-gradient(to bottom, transparent, rgba(99, 102, 241, 0.4) 30%, rgba(6, 255, 165, 0.3) 70%, transparent);
+  transform: rotate(-15deg);
+  transform-origin: top left;
+  animation: fall-ray 12s infinite linear;
+}
+
+/* Individual speeds and delays for light rays */
+.light-ray:nth-child(1) { left: 10%; width: 1.5px; animation-duration: 10s; animation-delay: 0s; }
+.light-ray:nth-child(2) { left: 25%; width: 3px; animation-duration: 15s; animation-delay: 2s; opacity: 0.7; }
+.light-ray:nth-child(3) { left: 40%; width: 1px; animation-duration: 8s; animation-delay: 4s; }
+.light-ray:nth-child(4) { left: 55%; width: 2px; animation-duration: 14s; animation-delay: 1s; }
+.light-ray:nth-child(5) { left: 70%; width: 4px; animation-duration: 18s; animation-delay: 5s; opacity: 0.5; }
+.light-ray:nth-child(6) { left: 85%; width: 1.5px; animation-duration: 12s; animation-delay: 3s; }
+.light-ray:nth-child(7) { left: 18%; width: 2px; animation-duration: 11s; animation-delay: 1.5s; }
+.light-ray:nth-child(8) { left: 33%; width: 1px; animation-duration: 9s; animation-delay: 6s; }
+.light-ray:nth-child(9) { left: 48%; width: 3px; animation-duration: 16s; animation-delay: 0.5s; }
+.light-ray:nth-child(10) { left: 63%; width: 1.5px; animation-duration: 13s; animation-delay: 2.5s; }
+.light-ray:nth-child(11) { left: 78%; width: 2px; animation-duration: 15s; animation-delay: 4.5s; }
+.light-ray:nth-child(12) { left: 93%; width: 2.5px; animation-duration: 12s; animation-delay: 1.2s; }
+
+@keyframes fall-ray {
+  0% { transform: translateY(-100%) rotate(-15deg); }
+  100% { transform: translateY(100%) rotate(-15deg); }
+}
+
+/* Solid dark custom components (previously glassmorphism) */
+.glass-panel {
+  background: #11161d;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+  transition: all 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+
+.glass-panel-interactive:hover {
+  background: #161d26;
+  border-color: rgba(99, 102, 241, 0.3);
+  box-shadow: 0 12px 40px 0 rgba(99, 102, 241, 0.15);
+  transform: translateY(-2px);
+}
+

@@ -2,15 +2,14 @@ import { Icons } from "./icons"
 import { Button } from "./button"
 import { Input } from "./input"
 import { Label } from "./label"
-import { MessageCircle, Globe } from "lucide-react"
 import { Link } from "react-router-dom"
 
 function StackedCircularFooter() {
   return (
-    <footer className="bg-transparent border-t border-white/10 py-12 relative z-10 pointer-events-auto">
+    <footer className="w-full border-t border-white/5 bg-[#0c1117] py-12 mt-20 relative z-10 pointer-events-auto">
       <div className="w-full px-6 md:px-12">
         <div className="flex flex-col items-center">
-          <div className="mb-8 rounded-full bg-white/5 p-8 border border-white/10 backdrop-blur-sm">
+          <div className="mb-8 rounded-full bg-white/[0.08] p-8 border border-white/10">
             <Icons.logo className="text-white w-8 h-8" />
           </div>
           <nav className="mb-8 flex flex-wrap justify-center gap-6">

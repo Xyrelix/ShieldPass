@@ -8,6 +8,7 @@ import { gsap } from 'gsap';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
 import { Link } from 'react-router-dom';
 import Footer from '../Footer';
+import { motion, AnimatePresence } from 'motion/react';
 
 gsap.registerPlugin(ScrollTrigger);
 
@@ -69,6 +70,7 @@ const ScrollHero: React.FC<ScrollHeroProps> = ({
   const mouseRef = useRef({ x: 0.5, y: 0.5, sx: 0.5, sy: 0.5 });
 
   const [isLoaded, setIsLoaded] = useState(false);
+  const [isMobileOpen, setIsMobileOpen] = useState(false);
 
 
   const paletteGLSL = `
@@ -654,8 +656,53 @@ const ScrollHero: React.FC<ScrollHeroProps> = ({
             ))}
             {rightNavElement}
           </div>
+
+          {/* Mobile hamburger menu toggle button */}
+          <button
+            onClick={() => setIsMobileOpen(!isMobileOpen)}
+            className="flex md:hidden items-center justify-center p-2 rounded-lg border border-white/10 bg-white/5 hover:bg-white/10 transition-colors z-50 text-white cursor-pointer"
+            aria-label="Toggle Menu"
+          >
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              {isMobileOpen ? (
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              ) : (
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16m-7 6h7" />
+              )}
+            </svg>
+          </button>
         </div>
       </nav>
+
+      {/* Mobile Drawer Menu Overlay */}
+      <AnimatePresence>
+        {isMobileOpen && (
+          <motion.div
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            transition={{ duration: 0.25, ease: "easeInOut" }}
+            className="fixed inset-0 z-40 bg-[#0c1117]/98 pt-28 px-8 flex flex-col gap-6 md:hidden"
+          >
+            <div className="flex flex-col gap-2 text-lg font-mono tracking-wider pt-6">
+              {menuItems.map((item, i) => (
+                <Link
+                  key={i}
+                  to={`/${item.toLowerCase()}`}
+                  onClick={() => setIsMobileOpen(false)}
+                  className="py-4 border-b border-white/5 text-white/60 hover:text-indigo-400"
+                >
+                  {item}
+                </Link>
+              ))}
+              
+              <div className="mt-8">
+                {rightNavElement}
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {sections.map((section, index) => (
         <section

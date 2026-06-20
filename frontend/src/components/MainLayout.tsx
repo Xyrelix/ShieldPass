@@ -1,9 +1,10 @@
-import React from "react";
+import React, { useState } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { motion } from "motion/react";
+import { motion, AnimatePresence } from "motion/react";
 import BackgroundShader from "./BackgroundShader";
 import LightRays from "./LightRays";
 import GlowOrbs from "./GlowOrbs";
+import Footer from "./Footer";
 
 interface MainLayoutProps {
   children: React.ReactNode;
@@ -17,6 +18,8 @@ export default function MainLayout({
   const location = useLocation();
   const currentPath = location.pathname;
   const isActive = (path: string) => currentPath === path;
+  
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   return (
     <div className="min-h-screen flex flex-col relative font-sans">
@@ -27,19 +30,19 @@ export default function MainLayout({
       <GlowOrbs />
       <LightRays />
 
-      {/* EVER-PRESENT PINNED TOP HEADER - Restored Nav Bar */}
+      {/* FLOATING GLASS CAPSULE HEADER */}
       <motion.header
         initial={{ y: -40, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
         transition={{ duration: 0.5, ease: [0.25, 0.4, 0.25, 1] as any }}
-        className="fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-6 py-4 md:px-12 bg-transparent"
+        className="fixed top-4 left-4 right-4 md:left-8 md:right-8 z-50 flex items-center justify-between px-6 py-3.5 rounded-2xl glass-panel shadow-lg border border-white/5"
       >
         <div className="flex items-center gap-8">
           <Link
             to="/"
             className="flex items-center gap-3 font-display text-xl font-bold tracking-tight hover:opacity-80 transition-opacity group"
           >
-            <div className="relative w-8 h-8 rounded-lg flex items-center justify-center border border-white/20 overflow-hidden bg-white/5 backdrop-blur-md">
+            <div className="relative w-8 h-8 rounded-lg flex items-center justify-center border border-white/20 overflow-hidden bg-white/[0.08]">
               <svg
                 className="w-4 h-4 text-white relative z-10 group-hover:scale-110 transition-transform"
                 fill="none"
@@ -62,6 +65,15 @@ export default function MainLayout({
           {/* Restored Navigation Links */}
           <nav className="hidden md:flex items-center gap-6 text-sm font-mono tracking-wider">
             <Link
+              to="/onboarding"
+              className={`flex items-center gap-2 transition-all duration-300 ${isActive("/onboarding") ? "opacity-100 font-semibold" : "opacity-60 hover:opacity-100"}`}
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+              </svg>
+              Verify Identity
+            </Link>
+            <Link
               to="/marketplace"
               className={`flex items-center gap-2 transition-all duration-300 ${isActive("/marketplace") ? "opacity-100 font-semibold" : "opacity-60 hover:opacity-100"}`}
             >
@@ -83,9 +95,75 @@ export default function MainLayout({
         </div>
 
         <div className="flex items-center gap-4">
-          {walletComponent && <div className="z-10">{walletComponent}</div>}
+          {walletComponent && <div className="hidden md:block z-10">{walletComponent}</div>}
+          
+          {/* Mobile hamburger menu button */}
+          <button
+            onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+            className="flex md:hidden items-center justify-center p-2 rounded-lg border border-white/10 bg-white/5 hover:bg-white/10 transition-colors z-50 text-white cursor-pointer"
+            aria-label="Toggle Navigation Menu"
+          >
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              {isMobileMenuOpen ? (
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              ) : (
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16m-7 6h7" />
+              )}
+            </svg>
+          </button>
         </div>
       </motion.header>
+
+      {/* Mobile Drawer Menu Overlay */}
+      <AnimatePresence>
+        {isMobileMenuOpen && (
+          <motion.div
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            transition={{ duration: 0.25, ease: "easeInOut" }}
+            className="fixed inset-0 z-40 bg-[#0c1117]/98 pt-28 px-8 flex flex-col gap-6 md:hidden"
+          >
+            <div className="flex flex-col gap-2 text-lg font-mono tracking-wider pt-6">
+              <Link
+                to="/onboarding"
+                onClick={() => setIsMobileMenuOpen(false)}
+                className={`flex items-center gap-3 py-4 border-b border-white/5 ${isActive("/onboarding") ? "text-indigo-400 font-semibold" : "text-white/60"}`}
+              >
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                </svg>
+                Verify Identity
+              </Link>
+              <Link
+                to="/marketplace"
+                onClick={() => setIsMobileMenuOpen(false)}
+                className={`flex items-center gap-3 py-4 border-b border-white/5 ${isActive("/marketplace") ? "text-indigo-400 font-semibold" : "text-white/60"}`}
+              >
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
+                </svg>
+                Marketplace
+              </Link>
+              <Link
+                to="/dashboard"
+                onClick={() => setIsMobileMenuOpen(false)}
+                className={`flex items-center gap-3 py-4 border-b border-white/5 ${isActive("/dashboard") ? "text-indigo-400 font-semibold" : "text-white/60"}`}
+              >
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
+                </svg>
+                Dashboard
+              </Link>
+              
+              {/* Mobile Wallet Connection Trigger */}
+              <div className="mt-8">
+                {walletComponent}
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* PRIMARY RENDER BLOCK */}
       <motion.main
@@ -93,10 +171,12 @@ export default function MainLayout({
         initial={{ opacity: 0, y: 12 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.4, ease: [0.25, 0.4, 0.25, 1] as any }}
-        className="flex-1 w-full max-w-7xl mx-auto p-6 md:p-12 pt-28 relative z-10"
+        className="flex-1 w-full max-w-7xl mx-auto px-4 sm:px-6 md:px-12 pb-4 sm:pb-6 md:pb-12 pt-28 sm:pt-32 md:pt-36 relative z-10"
       >
         {children}
       </motion.main>
+
+      <Footer />
     </div>
   );
 }
