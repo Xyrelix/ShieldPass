@@ -33,15 +33,7 @@ export default function App() {
         {/* Core application features are wrapped in your matching MainLayout shell */}
         <Route
           path="/onboarding"
-          element={
-            <MainLayout
-              walletComponent={
-                <WalletConnectButton />
-              }
-            >
-              <OnboardingPage />
-            </MainLayout>
-          }
+          element={<OnboardingPage />}
         />
 
         <Route

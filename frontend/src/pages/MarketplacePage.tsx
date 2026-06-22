@@ -212,14 +212,14 @@ export default function MarketplacePage() {
           className="flex flex-col md:flex-row md:items-baseline justify-between mb-8 gap-4"
         >
           <div>
-            <h1 className="geist-heading text-3xl sm:text-4xl md:text-5xl bg-gradient-to-r from-white via-white to-white/50 bg-clip-text text-transparent font-medium">
+            <h1 className="geist-heading text-3xl sm:text-4xl md:text-5xl text-foreground font-medium">
               Marketplace
             </h1>
-            <p className="text-white/40 text-sm mt-2 font-light">
+            <p className="text-muted-foreground text-sm mt-2 font-light">
               Trade crypto for naira privately — every action gated by a real ZK proof.
             </p>
           </div>
-          <p className="font-mono text-xs opacity-60 bg-white/[0.08] border border-white/10 px-4 py-2 rounded-full self-start md:self-auto">
+          <p className="font-mono text-xs bg-muted text-foreground border border-border px-4 py-2 rounded-full self-start md:self-auto">
             {trades.length} OPEN OFFERS
           </p>
         </motion.div>
@@ -228,13 +228,13 @@ export default function MarketplacePage() {
         <motion.div variants={fadeUp} className="flex gap-2 mb-8">
           <button
             onClick={() => setMode("buy")}
-            className={`font-mono text-xs uppercase tracking-widest px-5 py-2.5 rounded-lg border border-white/10 transition-all ${mode === "buy" ? "bg-gradient-to-r from-indigo-600 to-purple-600 text-white" : "bg-white/5 text-white/50"}`}
+            className={`font-mono text-xs uppercase tracking-widest px-5 py-2.5 rounded-lg border border-border transition-all ${mode === "buy" ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}
           >
             Buy
           </button>
           <button
             onClick={() => setMode("sell")}
-            className={`font-mono text-xs uppercase tracking-widest px-5 py-2.5 rounded-lg border border-white/10 transition-all ${mode === "sell" ? "bg-gradient-to-r from-indigo-600 to-purple-600 text-white" : "bg-white/5 text-white/50"}`}
+            className={`font-mono text-xs uppercase tracking-widest px-5 py-2.5 rounded-lg border border-border transition-all ${mode === "sell" ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}
           >
             Sell
           </button>
@@ -242,9 +242,9 @@ export default function MarketplacePage() {
 
         {actionError ? (
           <motion.div initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} className="border border-red-500/20 bg-red-500/[0.02] p-4 rounded-2xl mb-6 flex items-center justify-between gap-4">
-            <ErrorNotice error={actionError} className="min-w-0" />
+            <ErrorNotice error={actionError} className="min-w-0 text-foreground" />
             {!session.onboarded && (
-              <button onClick={() => navigate("/onboarding")} className="text-xs bg-red-500/20 border border-red-500/30 text-red-300 px-3 py-1.5 rounded-lg hover:bg-red-500/30 transition-all font-mono">
+              <button onClick={() => navigate("/onboarding")} className="text-xs bg-red-500/20 border border-red-500/30 text-red-500 px-3 py-1.5 rounded-lg hover:bg-red-500/30 transition-all font-mono">
                 Go to Onboarding
               </button>
             )}
@@ -253,115 +253,115 @@ export default function MarketplacePage() {
 
         {/* ── SELL: create offer ── */}
         {mode === "sell" && (
-          <motion.div variants={fadeUp} className="glass-panel rounded-2xl p-6 mb-8 space-y-5 max-w-lg">
+          <motion.div variants={fadeUp} className="bg-card backdrop-blur-md border border-border rounded-2xl p-6 mb-8 space-y-5 max-w-lg shadow-xl">
             {/* Crypto you're selling */}
             <div className="grid grid-cols-2 gap-3">
               <label className="flex flex-col gap-1.5">
-                <span className="text-xs text-white/50 font-medium">Asset</span>
+                <span className="text-xs text-muted-foreground font-medium">Asset</span>
                 <select
-                  className="font-mono bg-white/[0.02] border border-white/10 rounded-xl px-4 py-3 text-white outline-none focus:border-indigo-400/50 appearance-none"
+                  className="font-mono bg-input border border-border rounded-xl px-4 py-3 text-foreground outline-none focus:border-primary/50 appearance-none"
                   value={assetType}
                   onChange={(e) => setAssetType(e.target.value)}
                   onBlur={() => markTouched("assetType")}
                 >
                   {SUPPORTED_ASSETS.length === 0 && <option value="">No assets configured</option>}
                   {SUPPORTED_ASSETS.map((a) => (
-                    <option key={a.code} value={a.code} className="bg-zinc-900">{a.label}</option>
+                    <option key={a.code} value={a.code} className="bg-background">{a.label}</option>
                   ))}
                 </select>
-                <span className="text-[11px] text-white/35">The crypto you'll lock in escrow.</span>
-                {show("assetType") && <span className="text-[11px] text-red-400">{errors.assetType}</span>}
+                <span className="text-[11px] text-muted-foreground">The crypto you'll lock in escrow.</span>
+                {show("assetType") && <span className="text-[11px] text-red-500">{errors.assetType}</span>}
               </label>
 
               <label className="flex flex-col gap-1.5">
-                <span className="text-xs text-white/50 font-medium">Amount</span>
+                <span className="text-xs text-muted-foreground font-medium">Amount</span>
                 <input
                   type="number" min="0" inputMode="decimal"
-                  className="font-mono bg-white/[0.02] border border-white/10 rounded-xl px-4 py-3 text-white outline-none focus:border-indigo-400/50"
+                  className="font-mono bg-input border border-border rounded-xl px-4 py-3 text-foreground outline-none focus:border-primary/50"
                   value={cryptoAmount}
                   onChange={(e) => setCryptoAmount(e.target.value)}
                   onBlur={() => markTouched("cryptoAmount")}
                   placeholder="100"
                 />
-                <span className="text-[11px] text-white/35">How much {assetType || "crypto"} to sell.</span>
-                {show("cryptoAmount") && <span className="text-[11px] text-red-400">{errors.cryptoAmount}</span>}
+                <span className="text-[11px] text-muted-foreground">How much {assetType || "crypto"} to sell.</span>
+                {show("cryptoAmount") && <span className="text-[11px] text-red-500">{errors.cryptoAmount}</span>}
               </label>
             </div>
 
             {/* Price */}
             <label className="flex flex-col gap-1.5">
-              <span className="text-xs text-white/50 font-medium">Rate (₦ per {assetType || "unit"})</span>
+              <span className="text-xs text-muted-foreground font-medium">Rate (₦ per {assetType || "unit"})</span>
               <input
                 type="number" min="0" inputMode="decimal"
-                className="font-mono bg-white/[0.02] border border-white/10 rounded-xl px-4 py-3 text-white outline-none focus:border-indigo-400/50"
+                className="font-mono bg-input border border-border rounded-xl px-4 py-3 text-foreground outline-none focus:border-primary/50"
                 value={nairaRate}
                 onChange={(e) => setNairaRate(e.target.value)}
                 onBlur={() => markTouched("nairaRate")}
                 placeholder="1650"
               />
-              <span className="text-[11px] text-white/35">Naira the buyer pays per 1 {assetType || "unit"}.</span>
-              {show("nairaRate") && <span className="text-[11px] text-red-400">{errors.nairaRate}</span>}
+              <span className="text-[11px] text-muted-foreground">Naira the buyer pays per 1 {assetType || "unit"}.</span>
+              {show("nairaRate") && <span className="text-[11px] text-red-500">{errors.nairaRate}</span>}
             </label>
 
             {/* Payout destination */}
-            <div className="space-y-3 pt-1 border-t border-white/5">
-              <p className="text-xs text-white/50 font-medium pt-3">Your bank account (where the buyer sends Naira)</p>
+            <div className="space-y-3 pt-1 border-t border-border">
+              <p className="text-xs text-muted-foreground font-medium pt-3">Your bank account (where the buyer sends Naira)</p>
               <label className="flex flex-col gap-1.5">
-                <span className="text-[11px] text-white/35">Bank</span>
+                <span className="text-[11px] text-muted-foreground">Bank</span>
                 <select
-                  className="font-mono bg-white/[0.02] border border-white/10 rounded-xl px-4 py-3 text-white outline-none focus:border-indigo-400/50 appearance-none"
+                  className="font-mono bg-input border border-border rounded-xl px-4 py-3 text-foreground outline-none focus:border-primary/50 appearance-none"
                   value={bankCode}
                   onChange={(e) => setBankCode(e.target.value)}
                   onBlur={() => markTouched("bankCode")}
                 >
-                  <option value="" className="bg-zinc-900">Select your bank…</option>
+                  <option value="" className="bg-background">Select your bank…</option>
                   {NIGERIAN_BANKS.map((b) => (
-                    <option key={b.code} value={b.code} className="bg-zinc-900">{b.name}</option>
+                    <option key={b.code} value={b.code} className="bg-background">{b.name}</option>
                   ))}
                 </select>
-                {show("bankCode") && <span className="text-[11px] text-red-400">{errors.bankCode}</span>}
+                {show("bankCode") && <span className="text-[11px] text-red-500">{errors.bankCode}</span>}
               </label>
               <div className="grid grid-cols-2 gap-3">
                 <label className="flex flex-col gap-1.5">
-                  <span className="text-[11px] text-white/35">Account number</span>
+                  <span className="text-[11px] text-muted-foreground">Account number</span>
                   <input
                     inputMode="numeric" maxLength={10}
-                    className="font-mono bg-white/[0.02] border border-white/10 rounded-xl px-4 py-3 text-white outline-none focus:border-indigo-400/50"
+                    className="font-mono bg-input border border-border rounded-xl px-4 py-3 text-foreground outline-none focus:border-primary/50"
                     value={accountNumber}
                     onChange={(e) => setAccountNumber(e.target.value.replace(/\D/g, "").slice(0, 10))}
                     onBlur={() => markTouched("accountNumber")}
                     placeholder="0123456789"
                   />
-                  {show("accountNumber") && <span className="text-[11px] text-red-400">{errors.accountNumber}</span>}
+                  {show("accountNumber") && <span className="text-[11px] text-red-500">{errors.accountNumber}</span>}
                 </label>
                 <label className="flex flex-col gap-1.5">
-                  <span className="text-[11px] text-white/35">Account name</span>
+                  <span className="text-[11px] text-muted-foreground">Account name</span>
                   <input
-                    className="bg-white/[0.02] border border-white/10 rounded-xl px-4 py-3 text-white outline-none focus:border-indigo-400/50"
+                    className="bg-input border border-border rounded-xl px-4 py-3 text-foreground outline-none focus:border-primary/50"
                     value={accountName}
                     onChange={(e) => setAccountName(e.target.value)}
                     onBlur={() => markTouched("accountName")}
                     placeholder="John Doe"
                   />
-                  {show("accountName") && <span className="text-[11px] text-red-400">{errors.accountName}</span>}
+                  {show("accountName") && <span className="text-[11px] text-red-500">{errors.accountName}</span>}
                 </label>
               </div>
             </div>
 
-            <div className="text-sm text-white/60">
+            <div className="text-sm text-muted-foreground">
               Total buyer pays:{" "}
-              <strong className="text-white">
+              <strong className="text-foreground">
                 ₦{Number(cryptoAmount) > 0 && Number(nairaRate) > 0 ? (Number(cryptoAmount) * Number(nairaRate)).toLocaleString() : "—"}
               </strong>
             </div>
             <button
               onClick={handleCreate}
               disabled={selling || !formValid}
-              className="w-full font-semibold px-6 py-4 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white shadow-lg shadow-indigo-500/20 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-full font-semibold px-6 py-4 rounded-xl bg-primary hover:bg-primary/90 text-primary-foreground shadow-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {selling ? "Locking crypto & listing…" : "🔒 Lock crypto & list offer"}
             </button>
-            {sellResult && <p className="text-sm text-green-400">{sellResult}</p>}
+            {sellResult && <p className="text-sm text-green-500">{sellResult}</p>}
           </motion.div>
         )}
 
@@ -369,8 +369,8 @@ export default function MarketplacePage() {
         {mode === "buy" && (
           <>
             {loading && (
-              <motion.div variants={fadeUp} className="flex items-center gap-3 opacity-60 text-sm border border-white/5 bg-white/[0.01] p-6 rounded-2xl">
-                <svg className="w-5 h-5 animate-spin text-indigo-400" fill="none" viewBox="0 0 24 24">
+              <motion.div variants={fadeUp} className="flex items-center gap-3 text-muted-foreground text-sm border border-border bg-muted/50 p-6 rounded-2xl">
+                <svg className="w-5 h-5 animate-spin text-primary" fill="none" viewBox="0 0 24 24">
                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                 </svg>
@@ -385,11 +385,11 @@ export default function MarketplacePage() {
             ) : null}
 
             {!loading && !loadError && trades.length === 0 && (
-              <motion.div variants={fadeUp} className="glass-panel p-12 rounded-[2rem] text-center">
-                <svg className="w-12 h-12 mx-auto mb-4 text-white/20" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <motion.div variants={fadeUp} className="bg-card backdrop-blur-md border-border border p-12 rounded-[2rem] text-center">
+                <svg className="w-12 h-12 mx-auto mb-4 text-muted-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
                 </svg>
-                <p className="text-white/50 text-sm">No open offers right now. Switch to Sell to create one.</p>
+                <p className="text-muted-foreground text-sm">No open offers right now. Switch to Sell to create one.</p>
               </motion.div>
             )}
 
@@ -400,39 +400,39 @@ export default function MarketplacePage() {
                   <motion.div
                     key={t.id}
                     variants={fadeUp}
-                    className="glass-panel glass-panel-interactive rounded-2xl flex flex-col md:flex-row items-center justify-between p-5 sm:p-6 md:p-8 gap-6"
+                    className="bg-card backdrop-blur-md border border-border rounded-2xl flex flex-col md:flex-row items-center justify-between p-5 sm:p-6 md:p-8 gap-6 shadow-md hover:border-primary/30 hover:shadow-lg transition-all"
                   >
                     <div className="flex flex-col sm:flex-row items-center gap-4 sm:gap-5 w-full md:w-auto text-center sm:text-left">
-                      <div className="w-12 h-12 rounded-xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center flex-shrink-0">
-                        <span className="font-mono text-sm font-bold text-indigo-400">{t.assetType.slice(0, 3)}</span>
+                      <div className="w-12 h-12 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center flex-shrink-0">
+                        <span className="font-mono text-sm font-bold text-primary">{t.assetType.slice(0, 3)}</span>
                       </div>
                       <div className="flex flex-col">
                         <div className="flex items-baseline gap-2 justify-center sm:justify-start">
-                          <span className="geist-heading text-3xl font-light">{t.cryptoAmount}</span>
-                          <span className="text-sm font-semibold text-white/55">{t.assetType}</span>
+                          <span className="geist-heading text-3xl font-light text-foreground">{t.cryptoAmount}</span>
+                          <span className="text-sm font-semibold text-muted-foreground">{t.assetType}</span>
                         </div>
-                        <span className="font-mono text-xs text-white/40 mt-1">
+                        <span className="font-mono text-xs text-muted-foreground mt-1">
                           Rate: ₦{parseFloat(t.nairaRate).toLocaleString()} / {t.assetType}
                         </span>
-                        <span className="font-mono text-[10px] text-white/30 mt-1">Seller: {t.sellerWallet.slice(0, 10)}…</span>
+                        <span className="font-mono text-[10px] text-muted-foreground/70 mt-1">Seller: {t.sellerWallet.slice(0, 10)}…</span>
                       </div>
                     </div>
 
                     <div className="flex flex-col sm:flex-row items-center gap-4 w-full md:w-auto">
-                      <div className="text-center sm:text-right font-mono text-xs text-white/50">
+                      <div className="text-center sm:text-right font-mono text-xs text-muted-foreground">
                         <div>Total Value</div>
-                        <div className="text-white text-lg font-semibold mt-0.5">₦{parseFloat(t.expectedAmount).toLocaleString()}</div>
+                        <div className="text-foreground text-lg font-semibold mt-0.5">₦{parseFloat(t.expectedAmount).toLocaleString()}</div>
                       </div>
                       <button
                         onClick={() => handleAccept(t)}
                         disabled={busyId !== null}
-                        className={`w-full sm:w-auto px-8 py-4 rounded-xl font-semibold flex items-center justify-center gap-2 border border-white/10 transition-all duration-300 ${busyId !== null
-                          ? "bg-white/5 text-white/40 cursor-not-allowed"
-                          : "bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-500/25 hover:scale-[1.02] active:scale-[0.98] cursor-pointer"
+                        className={`w-full sm:w-auto px-8 py-4 rounded-xl font-semibold flex items-center justify-center gap-2 border transition-all duration-300 ${busyId !== null
+                          ? "bg-muted text-muted-foreground border-border cursor-not-allowed"
+                          : "bg-primary hover:bg-primary/90 text-primary-foreground border-primary shadow-lg hover:scale-[1.02] active:scale-[0.98] cursor-pointer"
                           }`}
                       >
                         {isBusy ? "Accepting…" : "Accept Offer"}
-                        <svg className="w-4 h-4 text-white/80" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                         </svg>
                       </button>
@@ -449,28 +449,28 @@ export default function MarketplacePage() {
       <AnimatePresence>
         {proving && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 p-4">
-            <motion.div initial={{ scale: 0.95, y: 15 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.95, y: 15 }} className="w-full max-w-md bg-[#0d1117] border border-white/10 rounded-[2rem] p-8 text-center relative overflow-hidden shadow-2xl">
+            <motion.div initial={{ scale: 0.95, y: 15 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.95, y: 15 }} className="w-full max-w-md bg-card backdrop-blur-md border border-border rounded-[2rem] p-8 text-center relative overflow-hidden shadow-2xl">
               <div className="absolute inset-0 flex items-center justify-center opacity-5 pointer-events-none">
-                <div className="w-64 h-64 border-2 border-dashed border-indigo-500 rounded-full animate-[spin_60s_linear_infinite]" />
+                <div className="w-64 h-64 border-2 border-dashed border-primary rounded-full animate-[spin_60s_linear_infinite]" />
               </div>
-              <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-48 h-48 bg-indigo-500/20 rounded-full blur-[60px] pointer-events-none" />
+              <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-48 h-48 bg-primary/20 rounded-full blur-[60px] pointer-events-none" />
               <div className="relative z-10">
-                <div className="w-20 h-20 mx-auto mb-8 rounded-full bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center relative">
-                  <div className="absolute inset-0 rounded-full border border-indigo-500/40 animate-ping opacity-25" />
-                  <svg className="w-10 h-10 text-indigo-400 animate-pulse" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <div className="w-20 h-20 mx-auto mb-8 rounded-full bg-primary/10 border border-primary/20 flex items-center justify-center relative">
+                  <div className="absolute inset-0 rounded-full border border-primary/40 animate-ping opacity-25" />
+                  <svg className="w-10 h-10 text-primary animate-pulse" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
                   </svg>
                 </div>
-                <h3 className="geist-heading text-2xl mb-3 text-white font-medium">Zero-Knowledge Proof</h3>
-                <p className="text-white/40 text-sm font-mono tracking-wider uppercase mb-8">
+                <h3 className="geist-heading text-2xl mb-3 text-foreground font-medium">Zero-Knowledge Proof</h3>
+                <p className="text-muted-foreground text-sm font-mono tracking-wider uppercase mb-8">
                   {zk.status === "loading-circuit" ? "Loading circuit" : "Generating proof in-browser"}
                 </p>
-                <div className="space-y-2 text-left font-mono text-xs border border-white/5 bg-white/[0.01] p-4 rounded-xl max-h-40 overflow-auto">
+                <div className="space-y-2 text-left font-mono text-xs border border-border bg-muted/50 p-4 rounded-xl max-h-40 overflow-auto">
                   {zk.log.map((line, i) => (
-                    <div key={i} className="text-white/60">{line}</div>
+                    <div key={i} className="text-muted-foreground">{line}</div>
                   ))}
                 </div>
-                <p className="text-white/50 text-xs mt-6 leading-relaxed font-light">
+                <p className="text-muted-foreground text-xs mt-6 leading-relaxed font-light">
                   Your private credentials (BVN root & secret salt) never leave your browser. A real
                   zero-knowledge proof is generated locally and gates this action on-chain.
                 </p>

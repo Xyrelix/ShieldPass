@@ -1,8 +1,9 @@
 import { motion } from "motion/react";
+import { DarkBackground } from "../components/ui/background-snippets";
 
 export default function DocsPage() {
   return (
-    <div className="flex flex-col items-center justify-center min-h-[60vh] text-center px-4 relative z-10">
+    <div className="flex flex-col items-center justify-center min-h-[60vh] text-center px-4 relative z-10 pt-24">
       <motion.h1 
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
