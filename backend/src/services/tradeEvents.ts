@@ -1,5 +1,5 @@
 import { EventEmitter } from 'events';
-import type { Trade } from '@prisma/client';
+import type { Trade } from '../generated/prisma/client';
 
 const bus = new EventEmitter();
 bus.setMaxListeners(0); // many concurrent SSE connections

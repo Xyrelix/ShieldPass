@@ -1,10 +1,11 @@
 generator client {
-  provider = "prisma-client-js"
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  moduleFormat = "cjs"
 }
 
 datasource db {
-  provider = "sqlite" // Using SQLite for easy hackathon setup
-  url      = "file:./dev.db"
+  provider = "postgresql"
 }
 
 model User {

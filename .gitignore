@@ -8,9 +8,11 @@ target/
 Prover.toml
 Verifier.toml
 
-# Environment Variables
+# Environment Variables — NEVER commit secrets
 .env
-.env.local
+.env.*
+!.env.example
+*.bak
 
 # Database (SQLite) — Prisma writes the dev db under backend/prisma/
 backend/prisma/dev.db
@@ -33,3 +35,6 @@ contract_details.md
 frontend-tester
 docs
 
+
+# Prisma 7 generated client (regenerated at build via prisma generate)
+backend/src/generated/

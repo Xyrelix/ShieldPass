@@ -190,7 +190,7 @@ stateDiagram-v2
 | **Wallets** | `passkey-kit` smart wallets (WebAuthn / secp256r1) |
 | **Gasless relay** | OpenZeppelin Channels |
 | **SDK** | TypeScript (`@shieldpass/sdk`) |
-| **Backend** | Node, Express, Prisma, SSE |
+| **Backend** | Node, Express, Prisma 7 + Neon Postgres (`@prisma/adapter-pg`), SSE |
 | **Frontend** | React, Vite, Tailwind, Framer Motion |
 | **Payments** | Paystack (naira on/off-ramp) |
 | **Network** | Stellar / Soroban **testnet** |
@@ -238,11 +238,11 @@ const client = new ShieldPassClient(/* ...config... */)
 
 ## 🚀 Local development
 
-**Prerequisites:** Node 18+, a backend `.env`, and a frontend `.env`.
+**Prerequisites:** Node 20+ (Prisma 7 requires ≥ 20.19), a backend `.env`, and a frontend `.env`.
 
 ```bash
-# Backend
-cd backend && npm install && npm run dev      # http://localhost:3001
+# Backend — `prisma generate` is required (the v7 client is gitignored, not in node_modules)
+cd backend && npm install && npx prisma generate && npm run dev   # http://localhost:3001
 
 # Frontend
 cd frontend && npm install && npm run dev      # http://localhost:5173
@@ -252,8 +252,8 @@ Key environment variables:
 
 | File | Var | Purpose |
 |---|---|---|
+| `backend/.env` | `NEON_CONNECTION_STRING` | Neon Postgres **direct** URL — append `?sslmode=require&uselibpqcompat=true`, no `channel_binding` (used by both the Prisma adapter at runtime and `prisma.config.ts` for migrations) |
 | `backend/.env` | `CHANNELS_URL` / `CHANNELS_API_KEY` | OpenZeppelin Channels gasless relayer ([get a key](https://channels.openzeppelin.com/testnet/gen)) |
-| `backend/.env` | `WALLET_WASM_HASH` | Uploaded passkey smart-wallet wasm hash |
 | `backend/.env` | `STELLAR_RELAYER_SECRET` | Testnet deployer account |
 | `backend/.env` | `PAYSTACK_SECRET_KEY` | Naira payments (test) |
 | `frontend/.env` | `VITE_WALLET_WASM_HASH`, `VITE_ESCROW_CONTRACT_ID`, `VITE_TOKEN_CONTRACT_ID`, `VITE_*_SAC` | On-chain IDs the trade loop needs |

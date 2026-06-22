@@ -6,11 +6,15 @@
 #    compiled first, and the committed circuit json is copied into the SDK dist.
 #  - `--include=dev` is required because Render sets NODE_ENV=production, which would otherwise
 #    skip devDependencies (typescript, prisma, etc.) that the build needs.
-#  - Prisma uses SQLite (`file:./dev.db`). `prisma db push` recreates the schema at build time.
+#  - Prisma 7: the client is no longer emitted into node_modules — `prisma generate` writes it to
+#    backend/src/generated/prisma (gitignored), so it MUST run before `tsc`. The CLI connection
+#    lives in backend/prisma.config.ts; the runtime uses the @prisma/adapter-pg driver adapter.
+#  - Backed by managed Postgres (Neon) via NEON_CONNECTION_STRING. `prisma db push` syncs the
+#    schema at build time (non-destructive; it errors instead of dropping data).
 #
-# ⚠️ SQLite is NOT persistent on Render's ephemeral filesystem (and the free plan has no disk),
-#    so data resets on every deploy/restart. For real persistence, attach a Render Disk mounted
-#    at backend/prisma (paid), or switch the datasource to a managed Postgres and use DATABASE_URL.
+# NEON_CONNECTION_STRING must be the DIRECT (non-pooled) Neon URL with `?sslmode=require&uselibpqcompat=true`
+# and NO `channel_binding` (Prisma's pg adapter doesn't support it). The pooled (-pooler) host can
+# hang/fail during `prisma db push`, and this long-running service doesn't need PgBouncer anyway.
 
 services:
   - type: web
@@ -23,7 +27,7 @@ services:
       cd SDK && npm install --include=dev --no-audit --no-fund && npx tsc &&
       cp ../frontend/public/reusable_kyc.json dist/reusable_kyc.json &&
       cd ../backend && npm install --include=dev --no-audit --no-fund && npx prisma generate &&
-      npx prisma db push --accept-data-loss && npm run build
+      npx prisma db push && npm run build
     startCommand: cd backend && npm start
     envVars:
       - key: NODE_VERSION
@@ -34,15 +38,13 @@ services:
       - key: CHANNELS_URL
         value: https://channels.openzeppelin.com/testnet
       # Secrets — set these in the Render dashboard (sync: false keeps them out of the repo)
+      - key: NEON_CONNECTION_STRING
+        sync: false
       - key: STELLAR_CONTRACT_ID
         sync: false
       - key: STELLAR_RELAYER_SECRET
         sync: false
       - key: CHANNELS_API_KEY
         sync: false
-      - key: WALLET_WASM_HASH
-        sync: false
       - key: PAYSTACK_SECRET_KEY
-        sync: false
-      - key: PAYSTACK_PUBLIC_KEY
         sync: false
