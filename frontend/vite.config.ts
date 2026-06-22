@@ -1,9 +1,25 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
+import path from 'node:path'
+
+// The SDK prover does `require('@aztec/bb.js')`, which resolves to bb.js's NODE build in the
+// browser bundle — and that build calls `fileURLToPath`, crashing with
+// "(0 , r.fileURLToPath) is not a function". Force bb.js's BROWSER build instead.
+// We point at the SDK's own bb.js (5.0.0-nightly) — NOT the frontend's 4.3.1 — so the proofs the
+// browser generates match the version the backend verifies with. Same version on both sides is
+// required for UltraHonk proofs to verify.
+const bbBrowser = path.resolve(
+  import.meta.dirname,
+  '../SDK/node_modules/@aztec/bb.js/dest/browser/index.js',
+)
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  resolve: {
+    alias: { '@aztec/bb.js': bbBrowser },
+    dedupe: ['@aztec/bb.js'],
+  },
   server: {
     host: 'localhost',
     port: 5173,
