@@ -67,6 +67,45 @@ router.post('/verify-pin', async (req, res) => {
   return res.json({ ok: !!user.pinHash && verifyPin(String(pin), user.pinHash) });
 });
 
+// 1c. Re-issue a fresh compliance secret salt for a returning user (login on a new device).
+// The salt is client-only and never stored, so it can't be recovered — we mint a new one.
+// NOTE: this produces a NEW merkleRoot, which invalidates the previous on-chain commitment.
+// Fine on testnet; on mainnet this needs a migration story (or WebAuthn PRF for a stable salt).
+router.post('/reissue-salt', async (req, res) => {
+  const { email, pin } = req.body;
+  if (!email || !pin) return res.status(400).json({ error: 'email and pin are required.' });
+  try {
+    const user = await prisma.user.findUnique({ where: { email }, include: { attestation: true } });
+    if (!user) return res.status(404).json({ error: 'No user for that email.' });
+    if (!user.pinHash || !verifyPin(String(pin), user.pinHash)) return res.status(401).json({ error: 'Incorrect PIN.' });
+    if (!user.attestation) return res.status(409).json({ error: 'Complete BVN onboarding before logging in.' });
+
+    const isHuman = true, bvnVerified = true, goodStanding = true;
+    const secretSalt = issuer.generateSecretSalt();
+    const leafCommitment = issuer.generateLeaf(BigInt(secretSalt), isHuman, bvnVerified, goodStanding);
+    const { merkle_root } = issuer.generateMerkleProof(leafCommitment);
+
+    await prisma.complianceAttestation.update({
+      where: { userId: user.id },
+      data: { leafCommitment, merkleRoot: merkle_root, leafIndex: 0 },
+    });
+    return res.json({ success: true, secretSalt, merkleRoot: merkle_root, leafIndex: 0 });
+  } catch (err) {
+    console.error('[kyc/reissue-salt]', err);
+    return res.status(500).json({ error: 'Internal Server Error' });
+  }
+});
+
+// 1d. Look up the account linked to a smart wallet — used by login on a new device, after the
+// passkey identifies the wallet, to recover the user's email so the session can be restored.
+router.get('/account', async (req, res) => {
+  const wallet = String(req.query.wallet || '');
+  if (!wallet) return res.status(400).json({ error: 'wallet query param is required.' });
+  const user = await prisma.user.findUnique({ where: { smartWalletAddress: wallet } });
+  if (!user) return res.status(404).json({ error: 'No account for that wallet.' });
+  return res.json({ email: user.email, name: user.name, phone: user.phone });
+});
+
 // 2. Link a passkey smart wallet to the onboarded user (after wallet creation).
 router.post('/link-wallet', async (req, res) => {
   const { email, smartWalletAddress, passkeyKeyId } = req.body;

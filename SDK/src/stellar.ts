@@ -106,7 +106,9 @@ export class StellarContractClient {
         // passkey: build + simulate + assemble, then hand the XDR to the caller's WebAuthn signer
         // and gasless submit relay. The smart wallet (params.sellerWallet, a C-address) authorizes
         // via its passkey auth entry; the Channels relayer (in signer.submit) is the fee source.
-        const account = new Account(params.sellerWallet, '0');
+        // The tx envelope still needs a classic G-source — the relayer re-sources/re-signs for fees,
+        // so a throwaway keypair is fine here. (A C-address is NOT a valid Account id → "accountId is invalid".)
+        const account = new Account(Keypair.random().publicKey(), '0');
         let tx = new TransactionBuilder(account, { fee: BASE_FEE, networkPassphrase: this.networkPassphrase })
             .addOperation(op).setTimeout(30).build();
         const sim = await this.server.simulateTransaction(tx);

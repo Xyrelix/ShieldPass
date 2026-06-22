@@ -108,3 +108,45 @@ describe('POST /kyc/link-wallet', () => {
     expect(res.status).toBe(404);
   });
 });
+
+describe('POST /kyc/reissue-salt (login on a new device)', () => {
+  async function onboard(email: string) {
+    emails.push(email);
+    return request(app).post('/kyc/submit-bvn').send({ email, bvn: '12345678901', pin: '1234' });
+  }
+
+  it('mints a fresh salt + new merkleRoot for a verified user with the correct PIN', async () => {
+    const email = `reissue_${Date.now()}@test.com`;
+    const first = await onboard(email);
+    const res = await request(app).post('/kyc/reissue-salt').send({ email, pin: '1234' });
+    expect(res.status).toBe(200);
+    expect(typeof res.body.secretSalt).toBe('string');
+    expect(typeof res.body.merkleRoot).toBe('string');
+    expect(res.body.secretSalt).not.toBe(first.body.secretSalt); // a NEW salt
+  });
+
+  it('rejects a wrong PIN with 401', async () => {
+    const email = `reissuebad_${Date.now()}@test.com`;
+    await onboard(email);
+    const res = await request(app).post('/kyc/reissue-salt').send({ email, pin: '9999' });
+    expect(res.status).toBe(401);
+  });
+});
+
+describe('GET /kyc/account (wallet → account lookup for login)', () => {
+  it('returns the account linked to a smart wallet', async () => {
+    const email = `acct_${Date.now()}@test.com`;
+    emails.push(email);
+    await request(app).post('/kyc/submit-bvn').send({ email, bvn: '12345678901', pin: '1234' });
+    const wallet = 'CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC';
+    await request(app).post('/kyc/link-wallet').send({ email, smartWalletAddress: wallet, passkeyKeyId: 'key_login' });
+    const res = await request(app).get(`/kyc/account?wallet=${wallet}`);
+    expect(res.status).toBe(200);
+    expect(res.body.email).toBe(email);
+  });
+
+  it('404s for an unknown wallet', async () => {
+    const res = await request(app).get('/kyc/account?wallet=CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSX');
+    expect(res.status).toBe(404);
+  });
+});

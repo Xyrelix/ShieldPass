@@ -23,6 +23,16 @@ export const api = {
   verifyPin: (input: { email: string; pin: string }) =>
     request<{ ok: boolean }>('/kyc/verify-pin', { method: 'POST', body: JSON.stringify(input) }),
 
+  // Login on a new device: recover the account from the wallet the passkey identified.
+  getAccount: (wallet: string) =>
+    request<{ email: string; name: string | null; phone: string | null }>(
+      `/kyc/account?wallet=${encodeURIComponent(wallet)}`),
+
+  // Login on a new device: mint a fresh compliance salt (the salt is client-only, unrecoverable).
+  reissueSalt: (input: { email: string; pin: string }) =>
+    request<{ success: boolean; secretSalt: string; merkleRoot: string; leafIndex: number }>(
+      '/kyc/reissue-salt', { method: 'POST', body: JSON.stringify(input) }),
+
   linkWallet: (input: { email: string; smartWalletAddress: string; passkeyKeyId?: string }) =>
     request<{ success: boolean }>('/kyc/link-wallet', { method: 'POST', body: JSON.stringify(input) }),
 

@@ -1,5 +1,6 @@
 import ScrollHero from "../components/ui/ethereal";
 import WalletConnectButton from "../components/WalletConnectButton";
+import LoginButton from "../components/LoginButton";
 import { Icons } from "../components/ui/icons";
 import { motion, useInView } from "motion/react";
 import { useRef } from "react";
@@ -125,6 +126,7 @@ export default function LandingPage() {
             <div className="space-y-5">
               <div className="flex flex-wrap items-center gap-3">
                 <Link to="/onboarding" className={btnPrimary}>Get Started</Link>
+                <LoginButton className={btnGhost} />
                 <WalletConnectButton />
               </div>
               <div className="flex flex-wrap gap-2">

@@ -37,9 +37,11 @@ export class PasskeyWalletClient {
    * to that wallet and skip the on-chain lookup — this avoids relying on a derivation that can
    * fail or, after a re-deploy, resolve to a different contract.
    */
-  async connectWallet(keyId: string, contractId?: string): Promise<ConnectedWallet> {
+  async connectWallet(keyId?: string, contractId?: string): Promise<ConnectedWallet> {
+    // No keyId → passkey-kit runs a WebAuthn discovery prompt (the user picks their passkey) and
+    // derives the wallet from it. This is how login works on a NEW device with no stored keyId.
     const res = await this.kit.connectWallet({
-      keyId,
+      ...(keyId ? { keyId } : {}),
       ...(contractId ? { getContractId: async () => contractId } : {}),
     });
     return { keyId: res.keyIdBase64, contractId: res.contractId };

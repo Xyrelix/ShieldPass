@@ -26,6 +26,37 @@ const stagger = {
   },
 };
 
+// Assets we can actually escrow on-chain = those with a Stellar Asset Contract (SAC) configured.
+// NGNC has no public testnet issuer, so it's only offered if its SAC env is set.
+const SUPPORTED_ASSETS = [
+  { code: "XLM", label: "XLM — Stellar Lumens", sac: import.meta.env.VITE_XLM_SAC as string | undefined },
+  { code: "USDC", label: "USDC — USD Coin", sac: import.meta.env.VITE_USDC_SAC as string | undefined },
+  { code: "NGNC", label: "NGNC — Naira Coin", sac: import.meta.env.VITE_NGNC_SAC as string | undefined },
+].filter((a): a is { code: string; label: string; sac: string } => !!a.sac);
+
+// Common Nigerian banks + their NIBSS codes (the code is what payout processors route on).
+const NIGERIAN_BANKS = [
+  { code: "044", name: "Access Bank" },
+  { code: "050", name: "Ecobank" },
+  { code: "070", name: "Fidelity Bank" },
+  { code: "011", name: "First Bank" },
+  { code: "214", name: "FCMB" },
+  { code: "058", name: "GTBank" },
+  { code: "082", name: "Keystone Bank" },
+  { code: "50211", name: "Kuda" },
+  { code: "50515", name: "Moniepoint" },
+  { code: "999992", name: "OPay" },
+  { code: "999991", name: "PalmPay" },
+  { code: "076", name: "Polaris Bank" },
+  { code: "101", name: "Providus Bank" },
+  { code: "221", name: "Stanbic IBTC" },
+  { code: "232", name: "Sterling Bank" },
+  { code: "032", name: "Union Bank" },
+  { code: "033", name: "UBA" },
+  { code: "035", name: "Wema Bank" },
+  { code: "057", name: "Zenith Bank" },
+];
+
 export default function MarketplacePage() {
   const navigate = useNavigate();
   const session = useSession();
@@ -39,12 +70,28 @@ export default function MarketplacePage() {
   const [actionError, setActionError] = useState<string | null>(null);
 
   // Sell form
-  const [assetType, setAssetType] = useState("USDC");
-  const [cryptoAmount, setCryptoAmount] = useState("100");
-  const [nairaRate, setNairaRate] = useState("1650");
-  const [bank, setBank] = useState("058:0123456789:Seller");
+  const [assetType, setAssetType] = useState(SUPPORTED_ASSETS[0]?.code ?? "");
+  const [cryptoAmount, setCryptoAmount] = useState("");
+  const [nairaRate, setNairaRate] = useState("");
+  const [bankCode, setBankCode] = useState("");
+  const [accountNumber, setAccountNumber] = useState("");
+  const [accountName, setAccountName] = useState("");
   const [selling, setSelling] = useState(false);
   const [sellResult, setSellResult] = useState<string | null>(null);
+  const [touched, setTouched] = useState<Record<string, boolean>>({});
+  const [triedSubmit, setTriedSubmit] = useState(false);
+
+  // Field-level validation. Returns a message per invalid field (absent = valid).
+  const errors: Record<string, string> = {};
+  if (!SUPPORTED_ASSETS.some((a) => a.code === assetType)) errors.assetType = "Pick an asset to sell.";
+  if (!(Number(cryptoAmount) > 0)) errors.cryptoAmount = "Enter an amount greater than 0.";
+  if (!(Number(nairaRate) > 0)) errors.nairaRate = "Enter a rate greater than 0.";
+  if (!bankCode) errors.bankCode = "Select your bank.";
+  if (!/^\d{10}$/.test(accountNumber)) errors.accountNumber = "Account number must be 10 digits.";
+  if (accountName.trim().length < 2) errors.accountName = "Enter the account holder's name.";
+  const formValid = Object.keys(errors).length === 0;
+  const show = (field: string) => (touched[field] || triedSubmit) && errors[field];
+  const markTouched = (field: string) => setTouched((t) => ({ ...t, [field]: true }));
 
   const proving = zk.status === "loading-circuit" || zk.status === "generating";
 
@@ -92,6 +139,11 @@ export default function MarketplacePage() {
   async function handleCreate() {
     setActionError(null);
     setSellResult(null);
+    setTriedSubmit(true);
+    if (!formValid) {
+      setActionError("Fix the highlighted fields before listing.");
+      return;
+    }
     if (!session.onboarded || !session.address || !session.wallet) {
       setActionError("Complete onboarding + connect your passkey first.");
       return;
@@ -101,11 +153,16 @@ export default function MarketplacePage() {
       return;
     }
     const escrowId = import.meta.env.VITE_ESCROW_CONTRACT_ID as string;
-    const tokenId = import.meta.env.VITE_TOKEN_CONTRACT_ID as string;
+    // Use the selected asset's SAC as the escrowed token; fall back to the default token id.
+    const tokenId =
+      SUPPORTED_ASSETS.find((a) => a.code === assetType)?.sac ??
+      (import.meta.env.VITE_TOKEN_CONTRACT_ID as string);
     if (!escrowId || !tokenId) {
-      setActionError("Missing VITE_ESCROW_CONTRACT_ID / VITE_TOKEN_CONTRACT_ID.");
+      setActionError("Missing VITE_ESCROW_CONTRACT_ID / token SAC for this asset.");
       return;
     }
+    // Pack the validated parts into the stored payout string: bankCode:accountNumber:accountName
+    const bank = `${bankCode}:${accountNumber}:${accountName.trim()}`;
     try {
       setSelling(true);
       const pr = await zk.generateProof(session.secretSalt, session.merkleRoot);
@@ -195,20 +252,111 @@ export default function MarketplacePage() {
 
         {/* ── SELL: create offer ── */}
         {mode === "sell" && (
-          <motion.div variants={fadeUp} className="glass-panel rounded-2xl p-6 mb-8 space-y-4 max-w-lg">
+          <motion.div variants={fadeUp} className="glass-panel rounded-2xl p-6 mb-8 space-y-5 max-w-lg">
+            {/* Crypto you're selling */}
             <div className="grid grid-cols-2 gap-3">
-              <input className="font-mono bg-white/[0.02] border border-white/10 rounded-xl px-4 py-3 text-white outline-none" value={assetType} onChange={(e) => setAssetType(e.target.value)} placeholder="USDC" />
-              <input className="font-mono bg-white/[0.02] border border-white/10 rounded-xl px-4 py-3 text-white outline-none" value={cryptoAmount} onChange={(e) => setCryptoAmount(e.target.value)} placeholder="100" />
-              <input className="font-mono bg-white/[0.02] border border-white/10 rounded-xl px-4 py-3 text-white outline-none" value={nairaRate} onChange={(e) => setNairaRate(e.target.value)} placeholder="1650" />
-              <input className="font-mono bg-white/[0.02] border border-white/10 rounded-xl px-4 py-3 text-white outline-none" value={bank} onChange={(e) => setBank(e.target.value)} placeholder="058:0123456789:Seller" />
+              <label className="flex flex-col gap-1.5">
+                <span className="text-xs text-white/50 font-medium">Asset</span>
+                <select
+                  className="font-mono bg-white/[0.02] border border-white/10 rounded-xl px-4 py-3 text-white outline-none focus:border-indigo-400/50 appearance-none"
+                  value={assetType}
+                  onChange={(e) => setAssetType(e.target.value)}
+                  onBlur={() => markTouched("assetType")}
+                >
+                  {SUPPORTED_ASSETS.length === 0 && <option value="">No assets configured</option>}
+                  {SUPPORTED_ASSETS.map((a) => (
+                    <option key={a.code} value={a.code} className="bg-zinc-900">{a.label}</option>
+                  ))}
+                </select>
+                <span className="text-[11px] text-white/35">The crypto you'll lock in escrow.</span>
+                {show("assetType") && <span className="text-[11px] text-red-400">{errors.assetType}</span>}
+              </label>
+
+              <label className="flex flex-col gap-1.5">
+                <span className="text-xs text-white/50 font-medium">Amount</span>
+                <input
+                  type="number" min="0" inputMode="decimal"
+                  className="font-mono bg-white/[0.02] border border-white/10 rounded-xl px-4 py-3 text-white outline-none focus:border-indigo-400/50"
+                  value={cryptoAmount}
+                  onChange={(e) => setCryptoAmount(e.target.value)}
+                  onBlur={() => markTouched("cryptoAmount")}
+                  placeholder="100"
+                />
+                <span className="text-[11px] text-white/35">How much {assetType || "crypto"} to sell.</span>
+                {show("cryptoAmount") && <span className="text-[11px] text-red-400">{errors.cryptoAmount}</span>}
+              </label>
             </div>
+
+            {/* Price */}
+            <label className="flex flex-col gap-1.5">
+              <span className="text-xs text-white/50 font-medium">Rate (₦ per {assetType || "unit"})</span>
+              <input
+                type="number" min="0" inputMode="decimal"
+                className="font-mono bg-white/[0.02] border border-white/10 rounded-xl px-4 py-3 text-white outline-none focus:border-indigo-400/50"
+                value={nairaRate}
+                onChange={(e) => setNairaRate(e.target.value)}
+                onBlur={() => markTouched("nairaRate")}
+                placeholder="1650"
+              />
+              <span className="text-[11px] text-white/35">Naira the buyer pays per 1 {assetType || "unit"}.</span>
+              {show("nairaRate") && <span className="text-[11px] text-red-400">{errors.nairaRate}</span>}
+            </label>
+
+            {/* Payout destination */}
+            <div className="space-y-3 pt-1 border-t border-white/5">
+              <p className="text-xs text-white/50 font-medium pt-3">Your bank account (where the buyer sends Naira)</p>
+              <label className="flex flex-col gap-1.5">
+                <span className="text-[11px] text-white/35">Bank</span>
+                <select
+                  className="font-mono bg-white/[0.02] border border-white/10 rounded-xl px-4 py-3 text-white outline-none focus:border-indigo-400/50 appearance-none"
+                  value={bankCode}
+                  onChange={(e) => setBankCode(e.target.value)}
+                  onBlur={() => markTouched("bankCode")}
+                >
+                  <option value="" className="bg-zinc-900">Select your bank…</option>
+                  {NIGERIAN_BANKS.map((b) => (
+                    <option key={b.code} value={b.code} className="bg-zinc-900">{b.name}</option>
+                  ))}
+                </select>
+                {show("bankCode") && <span className="text-[11px] text-red-400">{errors.bankCode}</span>}
+              </label>
+              <div className="grid grid-cols-2 gap-3">
+                <label className="flex flex-col gap-1.5">
+                  <span className="text-[11px] text-white/35">Account number</span>
+                  <input
+                    inputMode="numeric" maxLength={10}
+                    className="font-mono bg-white/[0.02] border border-white/10 rounded-xl px-4 py-3 text-white outline-none focus:border-indigo-400/50"
+                    value={accountNumber}
+                    onChange={(e) => setAccountNumber(e.target.value.replace(/\D/g, "").slice(0, 10))}
+                    onBlur={() => markTouched("accountNumber")}
+                    placeholder="0123456789"
+                  />
+                  {show("accountNumber") && <span className="text-[11px] text-red-400">{errors.accountNumber}</span>}
+                </label>
+                <label className="flex flex-col gap-1.5">
+                  <span className="text-[11px] text-white/35">Account name</span>
+                  <input
+                    className="bg-white/[0.02] border border-white/10 rounded-xl px-4 py-3 text-white outline-none focus:border-indigo-400/50"
+                    value={accountName}
+                    onChange={(e) => setAccountName(e.target.value)}
+                    onBlur={() => markTouched("accountName")}
+                    placeholder="John Doe"
+                  />
+                  {show("accountName") && <span className="text-[11px] text-red-400">{errors.accountName}</span>}
+                </label>
+              </div>
+            </div>
+
             <div className="text-sm text-white/60">
-              Total buyer pays: <strong className="text-white">₦{(Number(cryptoAmount) * Number(nairaRate)).toLocaleString()}</strong>
+              Total buyer pays:{" "}
+              <strong className="text-white">
+                ₦{Number(cryptoAmount) > 0 && Number(nairaRate) > 0 ? (Number(cryptoAmount) * Number(nairaRate)).toLocaleString() : "—"}
+              </strong>
             </div>
             <button
               onClick={handleCreate}
-              disabled={selling}
-              className="w-full font-semibold px-6 py-4 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white shadow-lg shadow-indigo-500/20 transition-all disabled:opacity-50"
+              disabled={selling || !formValid}
+              className="w-full font-semibold px-6 py-4 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white shadow-lg shadow-indigo-500/20 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {selling ? "Locking crypto & listing…" : "🔒 Lock crypto & list offer"}
             </button>

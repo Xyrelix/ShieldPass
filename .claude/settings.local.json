@@ -18,7 +18,9 @@
       "Bash(cat code-quality-reviewer-prompt.md)",
       "Bash(npx vitest *)",
       "Bash(npx prisma *)",
-      "Bash(echo \"EXIT:$?\")"
+      "Bash(echo \"EXIT:$?\")",
+      "Bash(node -e \"console.log\\(require\\('@openzeppelin/relayer-plugin-channels/package.json'\\).version\\)\")",
+      "Bash(echo \"installed channels version: $\\(node -e \"console.log\\(require\\('@openzeppelin/relayer-plugin-channels/package.json'\\).version\\)\"\\)\")"
     ]
   }
 }
