@@ -20,14 +20,24 @@ export default defineConfig({
     alias: { '@aztec/bb.js': bbBrowser },
     dedupe: ['@aztec/bb.js'],
   },
+  // Cross-origin isolation so barretenberg (bb.js) can use SharedArrayBuffer for in-browser ZK
+  // proving. credentialless (not require-corp) keeps the jsdelivr Geist fonts working.
   server: {
     host: 'localhost',
     port: 5173,
     open: true,
+    headers: {
+      'Cross-Origin-Opener-Policy': 'same-origin',
+      'Cross-Origin-Embedder-Policy': 'credentialless',
+    },
   },
   preview: {
     host: 'localhost',
     port: 4173,
+    headers: {
+      'Cross-Origin-Opener-Policy': 'same-origin',
+      'Cross-Origin-Embedder-Policy': 'credentialless',
+    },
   },
   build: {
     outDir: 'dist',
