@@ -51,13 +51,6 @@ export interface ZKProofResult {
     nullifier: string;
 }
 
-export interface CreateOfferParams {
-    sellerWallet: string;
-    tokenAddress: string;   // Stellar asset contract address
-    amount: bigint;
-    nullifier: string;      // ZK nullifier proving seller passed KYC
-}
-
 /** Params for lock_swap on the Trustless Swap contract. */
 export interface LockSwapParams {
     userWallet: string;     // Soroban address (G... or C... smart wallet) locking the crypto

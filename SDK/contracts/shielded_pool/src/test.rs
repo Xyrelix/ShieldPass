@@ -12,12 +12,11 @@ fn setup_token<'a>(env: &Env, admin: &Address) -> (Address, TokenClient<'a>, Ste
 }
 
 #[test]
-fn test_get_swap_count() {
+fn test_lock_records_swap() {
     let env = Env::default();
     env.mock_all_auths();
 
     let admin = Address::generate(&env);
-    let treasury = Address::generate(&env);
     let user = Address::generate(&env);
     let token_admin = Address::generate(&env);
 
@@ -26,13 +25,16 @@ fn test_get_swap_count() {
 
     let id = env.register(TrustlessSwap, ());
     let swap = TrustlessSwapClient::new(&env, &id);
-    swap.init(&admin, &treasury);
-
-    assert_eq!(swap.get_swap_count(), 0);
+    swap.init(&admin);
 
     let nullifier = BytesN::from_array(&env, &[1u8; 32]);
-    swap.lock_swap(&user, &token_addr, &100, &nullifier);
-    assert_eq!(swap.get_swap_count(), 1);
+    let swap_id = swap.lock_swap(&user, &token_addr, &100, &nullifier);
+    assert_eq!(swap_id, 1);
+
+    let record = swap.get_swap(&swap_id);
+    assert_eq!(record.user, user);
+    assert_eq!(record.amount, 100);
+    assert!(record.status == SwapStatus::Locked);
 }
 
 #[test]
@@ -40,8 +42,8 @@ fn test_lock_then_admin_claims_to_treasury() {
     let env = Env::default();
     env.mock_all_auths();
 
+    // Admin doubles as the treasury — claim_swap sweeps the crypto to the admin address.
     let admin = Address::generate(&env);
-    let treasury = Address::generate(&env);
     let user = Address::generate(&env);
     let token_admin = Address::generate(&env);
 
@@ -50,20 +52,20 @@ fn test_lock_then_admin_claims_to_treasury() {
 
     let id = env.register(TrustlessSwap, ());
     let swap = TrustlessSwapClient::new(&env, &id);
-    swap.init(&admin, &treasury);
+    swap.init(&admin);
 
     let nullifier = BytesN::from_array(&env, &[7u8; 32]);
     let swap_id = swap.lock_swap(&user, &token_addr, &600, &nullifier);
-    assert_eq!(swap_id, 1);
 
     // Crypto is now locked in the contract, not with the user.
     assert_eq!(token.balance(&user), 400);
     assert_eq!(token.balance(&id), 600);
 
-    // Admin claims after fiat payout -> crypto swept to treasury.
-    swap.claim_swap(&admin, &swap_id);
-    assert_eq!(token.balance(&treasury), 600);
+    // Admin claims after fiat payout -> crypto swept to the treasury (admin).
+    swap.claim_swap(&swap_id);
+    assert_eq!(token.balance(&admin), 600);
     assert_eq!(token.balance(&id), 0);
+    assert!(swap.get_swap(&swap_id).status == SwapStatus::Completed);
 }
 
 #[test]
@@ -72,7 +74,6 @@ fn test_user_cannot_claim() {
     let env = Env::default();
 
     let admin = Address::generate(&env);
-    let treasury = Address::generate(&env);
     let user = Address::generate(&env);
     let token_admin = Address::generate(&env);
 
@@ -83,13 +84,13 @@ fn test_user_cannot_claim() {
     let swap = TrustlessSwapClient::new(&env, &id);
 
     env.mock_all_auths();
-    swap.init(&admin, &treasury);
+    swap.init(&admin);
     let nullifier = BytesN::from_array(&env, &[7u8; 32]);
     let swap_id = swap.lock_swap(&user, &token_addr, &600, &nullifier);
 
-    // Drop all authorizations: admin has not authorized, so claim must panic.
+    // Drop all authorizations: the admin has not authorized, so claim must panic.
     env.set_auths(&[]);
-    swap.claim_swap(&admin, &swap_id);
+    swap.claim_swap(&swap_id);
 }
 
 #[test]
@@ -98,7 +99,6 @@ fn test_refund_after_timeout() {
     env.mock_all_auths();
 
     let admin = Address::generate(&env);
-    let treasury = Address::generate(&env);
     let user = Address::generate(&env);
     let token_admin = Address::generate(&env);
 
@@ -107,18 +107,19 @@ fn test_refund_after_timeout() {
 
     let id = env.register(TrustlessSwap, ());
     let swap = TrustlessSwapClient::new(&env, &id);
-    swap.init(&admin, &treasury);
+    swap.init(&admin);
 
     let nullifier = BytesN::from_array(&env, &[7u8; 32]);
     let swap_id = swap.lock_swap(&user, &token_addr, &600, &nullifier);
     assert_eq!(token.balance(&id), 600);
 
-    // Fast-forward past the 1-hour time-lock.
-    env.ledger().with_mut(|l| l.timestamp += TIMEOUT_SECONDS + 1);
+    // Fast-forward past the 1-hour (3600s) time-lock.
+    env.ledger().with_mut(|l| l.timestamp += 3601);
 
-    swap.refund_swap(&user, &swap_id);
+    swap.refund_swap(&swap_id);
     assert_eq!(token.balance(&user), 1_000);
     assert_eq!(token.balance(&id), 0);
+    assert!(swap.get_swap(&swap_id).status == SwapStatus::Refunded);
 }
 
 #[test]
@@ -128,7 +129,6 @@ fn test_refund_before_timeout_fails() {
     env.mock_all_auths();
 
     let admin = Address::generate(&env);
-    let treasury = Address::generate(&env);
     let user = Address::generate(&env);
     let token_admin = Address::generate(&env);
 
@@ -137,11 +137,11 @@ fn test_refund_before_timeout_fails() {
 
     let id = env.register(TrustlessSwap, ());
     let swap = TrustlessSwapClient::new(&env, &id);
-    swap.init(&admin, &treasury);
+    swap.init(&admin);
 
     let nullifier = BytesN::from_array(&env, &[7u8; 32]);
     let swap_id = swap.lock_swap(&user, &token_addr, &600, &nullifier);
 
-    // No time has passed — refund must panic.
-    swap.refund_swap(&user, &swap_id);
+    // No time has elapsed — refund must panic on the time-lock check.
+    swap.refund_swap(&swap_id);
 }

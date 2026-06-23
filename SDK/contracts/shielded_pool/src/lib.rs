@@ -122,3 +122,6 @@ impl TrustlessSwap {
         env.storage().persistent().get(&DataKey::Swap(swap_id)).unwrap()
     }
 }
+
+#[cfg(test)]
+mod test;

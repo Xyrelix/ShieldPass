@@ -20,6 +20,7 @@ async function main() {
     const issuer = new TrustedIssuer();
 
     // 1. User passes KYC; issuer mints a secret salt + leaf + inclusion proof.
+    //    hardwareAttested + bvnVerified + goodStanding (a Tier 2, BVN-verified, user).
     const secretSalt = issuer.generateSecretSalt();
     const leaf = issuer.generateLeaf(BigInt(secretSalt), true, true, true);
     const { merkle_path, merkle_indices, merkle_root } = issuer.generateMerkleProof(leaf);
@@ -33,7 +34,7 @@ async function main() {
 
     const params: KYCProofParams = {
         secret_salt: secretSalt,
-        is_human: '1',
+        hardware_attested: '1',
         bvn_verified: '1',
         good_standing: '1',
         merkle_path,
@@ -41,6 +42,7 @@ async function main() {
         merkle_root,
         current_timestamp,
         nullifier,
+        require_bvn: '1', // enforce the Tier 2 (BVN) branch in the circuit
     };
 
     // 3. Generate + verify the proof.
