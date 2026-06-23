@@ -16,6 +16,24 @@ export interface ConnectedWallet { credentialId: string; contractId: string }
 export interface InvokeResult { hash: string; result: unknown }
 
 /**
+ * WebAuthn caps the user handle (`user.id`) at 64 bytes. smart-account-kit derives it from
+ * `${user}:${Date.now()}:${Math.random()}`, so a long email overflows the limit and the OS
+ * passkey prompt throws "User handle exceeds 64 bytes". Bound `user` to leave headroom for the
+ * kit's timestamp+random suffix (~34 bytes worst case). The handle is throwaway — ShieldPass keys
+ * users by email in its own backend — so truncating only affects the cosmetic passkey label.
+ */
+function boundUserHandle(user: string, maxBytes = 28): string {
+  const enc = new TextEncoder();
+  if (enc.encode(user).length <= maxBytes) return user;
+  let out = '';
+  for (const ch of user) {
+    if (enc.encode(out + ch).length > maxBytes) break;
+    out += ch;
+  }
+  return out;
+}
+
+/**
  * Browser-only wrapper over OpenZeppelin's smart-account-kit — the audited successor to
  * passkey-kit. WebAuthn requires a DOM, so this must NEVER be imported on the backend (and it is
  * intentionally NOT re-exported from the SDK index — import it directly via
@@ -40,7 +58,7 @@ export class SmartAccountWalletClient {
 
   /** Create a passkey + deploy its smart account. Auto-submits the deploy via the relayer proxy. */
   async createWallet(app: string, user: string): Promise<ConnectedWallet> {
-    const res = await this.kit.createWallet(app, user, { autoSubmit: true });
+    const res = await this.kit.createWallet(app, boundUserHandle(user), { autoSubmit: true });
     if (res.submitResult && !res.submitResult.success) {
       throw new Error(res.submitResult.error || 'Smart account deploy failed.');
     }
