@@ -4,9 +4,15 @@ import { motion, AnimatePresence } from "motion/react";
 import { api } from "../lib/api";
 import { useSession } from "../lib/session";
 import { useZkProof } from "../lib/useZkProof";
-import { submitSigned } from "../lib/passkey";
 import ErrorNotice from "../components/ErrorNotice";
+import { Buffer } from "buffer";
 import type { BankAccount, Quote } from "../types";
+
+// Poseidon nullifier (decimal string) -> 32-byte big-endian BytesN<32> for the contract call.
+function nullifierToBytes(nullifier: string): Buffer {
+  const hex = BigInt(nullifier).toString(16).padStart(64, "0").slice(-64);
+  return Buffer.from(hex, "hex");
+}
 
 const fadeUp = {
   hidden: { opacity: 0, y: 30, filter: "blur(6px)", scale: 0.98 },
@@ -197,15 +203,18 @@ export default function SwapPage() {
       const pr = await zk.generateProof(session.secretSalt, session.merkleRoot, quote.requireBvn, session.bvnVerified);
       if (!pr) throw new Error(zk.error || "Proof generation failed.");
 
-      const { StellarContractClient } = await import("@shieldpass/sdk/dist/stellar");
-      const { Networks } = await import("@stellar/stellar-sdk");
-      const stellar = new StellarContractClient("https://soroban-testnet.stellar.org", Networks.TESTNET, escrowId);
-      
-      // 1. Lock on-chain
-      const created = await stellar.lockSwap(
-        { userWallet: session.address, tokenAddress: token.sac, amount: BigInt(cryptoAmount), nullifier: pr.nullifier },
-        { kind: "passkey", sign: (xdr: string) => session.wallet!.sign(xdr, session.keyId), submit: submitSigned }
-      );
+      if (!session.wallet || !session.address) {
+        throw new Error("Wallet not connected. Please log in again.");
+      }
+
+      // 1. Lock crypto on-chain through the smart account (passkey-signed, gasless via the relayer).
+      const locked = await session.wallet.invoke(escrowId, "lock_swap", {
+        user: session.address,
+        token_address: token.sac,
+        amount: BigInt(cryptoAmount),
+        nullifier: nullifierToBytes(pr.nullifier),
+      });
+      const onChainSwapId = String(locked.result);
 
       // 2. Execute Fiat via Backend
       const exec = await api.executeSwap({
@@ -214,7 +223,7 @@ export default function SwapPage() {
         tokenAddress: token.sac,
         assetCode: token.code,
         cryptoAmount: Number(cryptoAmount),
-        onChainSwapId: String(created.swapId),
+        onChainSwapId,
         proof: pr.proof,
         publicInputs: pr.publicInputs,
         nullifier: pr.nullifier,

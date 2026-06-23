@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import { api } from "../lib/api";
 import { useSession } from "../lib/session";
-import { makeWallet, submitSigned } from "../lib/passkey";
+import { makeWallet } from "../lib/smartAccount";
 import { humanizeError } from "@shieldpass/sdk/dist/errors";
 
 import { AnimatedLayout } from "../components/ui/animated-characters-login-page";
@@ -51,34 +51,34 @@ export default function OnboardingPage() {
         throw new Error("Incorrect PIN for existing account.");
       }
 
-      let wallet, keyId, address, secretSalt, merkleRoot, bvnVerified = false;
+      let wallet, credentialId, address, secretSalt, merkleRoot, bvnVerified = false;
 
       if (check?.ok && check.passkeyKeyId && check.smartWalletAddress) {
         // --- LOGIN FLOW ---
         wallet = await makeWallet();
-        await wallet.connectWallet(check.passkeyKeyId); // Prompts Face ID / Touch ID
-        
+        await wallet.connectWallet(check.passkeyKeyId, check.smartWalletAddress); // Prompts Face ID / Touch ID
+
         const reissue = await api.reissueSalt({ email, pin });
-        keyId = check.passkeyKeyId;
+        credentialId = check.passkeyKeyId;
         address = check.smartWalletAddress;
         secretSalt = reissue.secretSalt;
         merkleRoot = reissue.merkleRoot;
         bvnVerified = reissue.bvnVerified;
       } else {
         // --- SIGNUP FLOW ---
+        // createWallet deploys the OZ smart account gaslessly via the relayer proxy (no manual submit).
         wallet = await makeWallet();
         const res = await wallet.createWallet("ShieldPass", email);
-        await submitSigned(res.signedDeployXdr);
-        
-        const linkRes = await api.linkWallet({ email, pin, smartWalletAddress: res.contractId, passkeyKeyId: res.keyId });
-        keyId = res.keyId;
+
+        const linkRes = await api.linkWallet({ email, pin, smartWalletAddress: res.contractId, passkeyKeyId: res.credentialId });
+        credentialId = res.credentialId;
         address = res.contractId;
         secretSalt = linkRes.secretSalt;
         merkleRoot = linkRes.merkleRoot;
       }
-      
-      session.set({ 
-        wallet, keyId, address, email, secretSalt, merkleRoot, bvnVerified
+
+      session.set({
+        wallet, credentialId, address, email, secretSalt, merkleRoot, bvnVerified
       });
       setStage("done");
     } catch (err) {

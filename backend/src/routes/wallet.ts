@@ -1,9 +1,22 @@
 import { Router } from 'express';
-import { submitSigned } from '../services/passkey';
+import { submitSigned, relay } from '../services/passkey';
 
 const router = Router();
 
-// Gasless submit relay: the browser passkey signs, the backend submits via the Channels relayer.
+// smart-account-kit relayer proxy. The kit's RelayerClient POSTs { func, auth } (gasless invoke)
+// or { xdr } (signed tx to fee-bump, e.g. wallet deploy) and expects a RelayerResponse back.
+router.post('/relay', async (req, res) => {
+  const { func, auth, xdr } = req.body ?? {};
+  if (!xdr && !func) {
+    return res.status(400).json({ success: false, error: 'Provide either { func, auth } or { xdr }.', errorCode: 'INVALID_PARAMS' });
+  }
+  const result = await relay({ func, auth, xdr });
+  // Always 200 with the RelayerResponse body — the kit reads `success`/`error` from the payload.
+  return res.json(result);
+});
+
+// Legacy gasless submit relay (passkey-kit): the browser passkey signs, the backend submits.
+// Kept as a fallback while the smart-account-kit migration is verified in the browser.
 router.post('/submit', async (req, res) => {
   const { signedXdr } = req.body;
   if (!signedXdr || typeof signedXdr !== 'string') {

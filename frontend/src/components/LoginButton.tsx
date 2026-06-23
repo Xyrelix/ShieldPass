@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useSession } from "../lib/session";
-import { makeWallet } from "../lib/passkey";
+import { makeWallet } from "../lib/smartAccount";
 import { api } from "../lib/api";
 import { humanizeError } from "@shieldpass/sdk/dist/errors";
 
@@ -21,11 +21,11 @@ export default function LoginButton({ className }: { className?: string }) {
     setBusy(true);
     try {
       const wallet = await makeWallet();
-      const res = session.keyId
-        ? await wallet.connectWallet(session.keyId, session.address ?? undefined) // same device
+      const res = session.credentialId
+        ? await wallet.connectWallet(session.credentialId, session.address ?? undefined) // same device
         : await wallet.connectWallet(); // new device → WebAuthn discovery
       const address = res.contractId;
-      const keyId = res.keyId;
+      const credentialId = res.credentialId;
 
       // Recover the account: stored email, otherwise look it up by the identified wallet.
       let email = session.email, name = session.name, phone = session.phone;
@@ -48,7 +48,7 @@ export default function LoginButton({ className }: { className?: string }) {
         merkleRoot = re.merkleRoot;
       }
 
-      session.set({ wallet, keyId, address, email, name, phone, secretSalt, merkleRoot });
+      session.set({ wallet, credentialId, address, email, name, phone, secretSalt, merkleRoot });
       navigate("/dashboard");
     } catch (err) {
       console.error("Login failed:", err);

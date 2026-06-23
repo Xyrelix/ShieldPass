@@ -58,11 +58,11 @@ ShieldPass is a monorepo: a TypeScript **SDK** (the reusable core), a Node **bac
 flowchart TB
     subgraph FE["🖥️ Frontend — React + Vite"]
         UI["Onboarding · Swap · Dashboard"]
-        PK["Passkey wallet (WebAuthn)"]
+        PK["Smart account (passkey / WebAuthn)"]
         ZKc["ZK prover (in-browser, Noir + bb.js)"]
     end
     subgraph SDK["📦 @shieldpass/sdk (TypeScript)"]
-        PWC["PasskeyWalletClient"]
+        PWC["SmartAccountWalletClient"]
         PR["Prover"]
         STC["StellarContractClient (lock/claim/refund)"]
         ISS["TrustedIssuer"]
@@ -77,7 +77,7 @@ flowchart TB
     subgraph ON["⛓️ On-chain — Soroban testnet"]
         POOL["Trustless Swap contract"]
         REG["Compliance registry"]
-        WASM["Passkey smart wallet"]
+        WASM["OZ smart account (passkey)"]
     end
     RELAYER["☁️ OpenZeppelin Channels (gasless relayer)"]
     FIAT["🏦 Lenco + Paystack (naira payouts)"]
@@ -135,13 +135,13 @@ flowchart TD
 
 ## 🔑 Passkey smart wallets (gasless)
 
-No seed phrases, no browser extensions, no XLM required. Each user gets a **smart-contract wallet** secured by a WebAuthn passkey. Signing happens with Face ID, a fingerprint, or your **device PIN** (e.g. Windows Hello) — and transactions are submitted **gaslessly** through the OpenZeppelin Channels relayer.
+No seed phrases, no browser extensions, no XLM required. Each user gets an **OpenZeppelin Smart Account** (deployed via `smart-account-kit`) secured by a WebAuthn passkey. Signing happens with Face ID, a fingerprint, or your **device PIN** (e.g. Windows Hello) — and transactions are submitted **gaslessly** through the backend relayer proxy (OpenZeppelin Channels, with an RPC fallback).
 
 ```mermaid
 sequenceDiagram
     actor User
     participant Browser as Browser · WebAuthn
-    participant SDK as PasskeyWalletClient
+    participant SDK as SmartAccountWalletClient
     participant Relay as Backend /wallet
     participant Channels as OZ Channels
     participant Chain as Soroban
@@ -213,8 +213,8 @@ No BVN is collected up front — onboarding is just **email + PIN + passkey**. B
 |---|---|
 | **ZK** | Noir circuits, Poseidon (BN254), `bb.js` prover in-browser |
 | **Smart contracts** | Rust / Soroban — trustless swap (time-lock) + compliance registry |
-| **Wallets** | `passkey-kit` smart wallets (WebAuthn / secp256r1) |
-| **Gasless relay** | OpenZeppelin Channels |
+| **Wallets** | OpenZeppelin **Smart Accounts** via `smart-account-kit` (WebAuthn passkeys / secp256r1) |
+| **Gasless relay** | OpenZeppelin Channels (behind the backend relayer proxy) |
 | **SDK** | TypeScript (`@shieldpass/sdk`) |
 | **Backend** | Node, Express, Prisma 7 + Neon Postgres (`@prisma/adapter-pg`) |
 | **Frontend** | React, Vite, Tailwind, Framer Motion |
@@ -227,7 +227,7 @@ No BVN is collected up front — onboarding is just **email + PIN + passkey**. B
 
 ```
 ShieldPass/
-├── SDK/              @shieldpass/sdk — prover, swap contract client, passkey wallet, ZK circuit
+├── SDK/              @shieldpass/sdk — prover, swap contract client, smart-account wallet, ZK circuit
 │   ├── circuits/reusable_kyc/        Noir progressive-KYC membership circuit
 │   └── contracts/shielded_pool/      Soroban Trustless Swap contract (lock/claim/refund)
 ├── backend/          Express API — /kyc /swap /banks /wallet /payments + Prisma
@@ -247,20 +247,21 @@ npm install @shieldpass/sdk
 ```
 
 ```ts
-import { StellarContractClient } from '@shieldpass/sdk'
-// Browser-only passkey wallet is a deep import (keeps it off the backend):
-import { PasskeyWalletClient } from '@shieldpass/sdk/dist/passkey'
+// Browser-only smart-account wallet is a deep import (keeps it off the backend):
+import { SmartAccountWalletClient } from '@shieldpass/sdk/dist/smartAccount'
 
-// 1. Create a passkey smart wallet (Face ID / fingerprint / PIN)
-const wallet = new PasskeyWalletClient({ rpcUrl, networkPassphrase, walletWasmHash })
-const { keyId, contractId } = await wallet.createWallet('ShieldPass', userEmail)
+// 1. Create an OZ Smart Account secured by a passkey (Face ID / fingerprint / PIN).
+//    Deploys gaslessly via the relayer proxy.
+const wallet = new SmartAccountWalletClient({
+  rpcUrl, networkPassphrase, accountWasmHash, webauthnVerifierAddress, relayerUrl,
+})
+const { credentialId, contractId } = await wallet.createWallet('ShieldPass', userEmail)
 
-// 2. Generate a ZK compliance proof in-browser, then lock the crypto for a swap
-const stellar = new StellarContractClient(rpcUrl, networkPassphrase, swapContractId)
-const { swapId } = await stellar.lockSwap(
-  { userWallet: contractId, tokenAddress, amount, nullifier },
-  { kind: 'passkey', sign: (xdr) => wallet.sign(xdr, keyId), submit: submitSignedXdr },
-)
+// 2. Generate a ZK compliance proof in-browser, then lock the crypto for a swap.
+//    The passkey signs the auth entries; the kit submits gaslessly. `result` = the new swap id.
+const { hash, result } = await wallet.invoke(swapContractId, 'lock_swap', {
+  user: contractId, token_address: tokenAddress, amount, nullifier,
+})
 ```
 
 **Best-fit apps:** KYC-gated off-ramps, privacy-preserving compliance flows, and any Stellar app that wants **gasless passkey wallets** + **on-chain proof of identity without doxxing the user**.
@@ -295,7 +296,8 @@ Key environment variables:
 | `backend/.env` | `STELLAR_CONTRACT_ID` / `STELLAR_RELAYER_SECRET` | Trustless Swap contract id + the admin keypair that signs `claim_swap` |
 | `backend/.env` | `LENCO_API_KEY` / `LENCO_ACCOUNT_ID` · `PAYSTACK_SECRET_KEY` | Naira payouts (redundant providers; payouts are mocked if unset) |
 | `backend/.env` | `SWAP_RATES` / `SWAP_DEFAULT_RATE` / `TIER2_THRESHOLD_NAIRA` | Quote pricing + the high-value (Tier 2 / BVN) threshold |
-| `frontend/.env` | `VITE_WALLET_WASM_HASH`, `VITE_ESCROW_CONTRACT_ID`, `VITE_*_SAC` | On-chain IDs the swap flow needs (`VITE_ESCROW_CONTRACT_ID` = the swap contract) |
+| `frontend/.env` | `VITE_ACCOUNT_WASM_HASH`, `VITE_WEBAUTHN_VERIFIER_ADDRESS`, `VITE_RELAYER_URL` | smart-account-kit config — OZ smart-account wasm hash, secp256r1 verifier, and the backend relayer proxy URL (`<backend>/wallet/relay`) |
+| `frontend/.env` | `VITE_ESCROW_CONTRACT_ID`, `VITE_*_SAC` | On-chain IDs the swap flow needs (`VITE_ESCROW_CONTRACT_ID` = the swap contract) |
 
 ---
 
@@ -303,8 +305,8 @@ Key environment variables:
 
 - **Testnet demo.** Built for the hackathon on Stellar testnet — not for real-fund custody.
 - **Trustless by design.** Crypto sits in a time-locked contract; if the backend never pays the fiat and calls `claim_swap`, the user reclaims their funds via `refund_swap` after one hour. The platform can never simply take the crypto.
-- **Passkey-kit is unaudited demo material.** It's the legacy precursor to OpenZeppelin's audited **Smart Accounts**; the documented production path is to migrate to [`smart-account-kit`](https://github.com/kalepail/smart-account-kit) before any mainnet use.
-- **Single-signer wallets.** Lose the passkey device and the wallet is unrecoverable unless a backup signer is added (`add_signer` exists in the wallet contract).
+- **OpenZeppelin Smart Accounts.** Wallets are deployed and signed via [`smart-account-kit`](https://github.com/kalepail/smart-account-kit) (OZ Smart Accounts) — the audited successor to passkey-kit. Each account is an on-chain contract whose signer is a WebAuthn passkey, validated by a secp256r1 verifier contract.
+- **Device-bound passkeys.** A passkey lives on one device; OZ Smart Accounts support adding additional signers/policies, so register a backup signer to avoid lockout if a device is lost.
 - The ZK gate is real and load-bearing: no valid (tier-appropriate) proof ⇒ no swap.
 
 ---

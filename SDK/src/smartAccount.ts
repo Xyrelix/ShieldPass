@@ -1,59 +1,99 @@
-import { PasskeyKit } from 'passkey-kit';
+import { contract } from '@stellar/stellar-sdk';
+import { SmartAccountKit } from 'smart-account-kit';
 
 export interface PasskeyWalletConfig {
   rpcUrl: string;
   networkPassphrase: string;
-  walletWasmHash: string; // factory wasm hash
+  /** OZ smart-account wasm hash — a fresh account instance is deployed per user from this. */
+  accountWasmHash: string;
+  /** Deployed secp256r1 / WebAuthn verifier contract (validates passkey signatures on-chain). */
+  webauthnVerifierAddress: string;
+  /** Backend relayer proxy URL for gasless submission. If unset, the kit submits via RPC. */
+  relayerUrl?: string;
 }
 
-export interface ConnectedWallet { keyId: string; contractId: string }
+export interface ConnectedWallet { credentialId: string; contractId: string }
+export interface InvokeResult { hash: string; result: unknown }
 
 /**
- * Browser-only wrapper over passkey-kit. WebAuthn requires a DOM, so this must NEVER be
- * imported on the backend (and it is intentionally NOT re-exported from the SDK index — import
- * it directly via `@shieldpass/sdk/dist/passkey`). Provides: deploy a new smart wallet, connect
- * an existing one, and sign a transaction's auth entries with the device passkey.
+ * Browser-only wrapper over OpenZeppelin's smart-account-kit — the audited successor to
+ * passkey-kit. WebAuthn requires a DOM, so this must NEVER be imported on the backend (and it is
+ * intentionally NOT re-exported from the SDK index — import it directly via
+ * `@shieldpass/sdk/dist/smartAccount`). Provides: deploy a new smart account, reconnect an existing one,
+ * and invoke a contract method authorized by the device passkey (gaslessly via the relayer proxy).
  */
-export class PasskeyWalletClient {
-  private kit: PasskeyKit;
+export class SmartAccountWalletClient {
+  private kit: SmartAccountKit;
+  private cfg: PasskeyWalletConfig;
 
   constructor(cfg: PasskeyWalletConfig) {
-    this.kit = new PasskeyKit({
+    this.cfg = cfg;
+    this.kit = new SmartAccountKit({
       rpcUrl: cfg.rpcUrl,
       networkPassphrase: cfg.networkPassphrase,
-      walletWasmHash: cfg.walletWasmHash,
+      accountWasmHash: cfg.accountWasmHash,
+      webauthnVerifierAddress: cfg.webauthnVerifierAddress,
+      relayerUrl: cfg.relayerUrl,
+      // storage defaults to IndexedDB in the browser.
     });
   }
 
-  /** Create a new passkey + deploy its smart wallet. Returns the signed deploy XDR + identifiers. */
-  async createWallet(app: string, user: string): Promise<{ keyId: string; contractId: string; signedDeployXdr: string }> {
-    const res = await this.kit.createWallet(app, user);
-    return { keyId: res.keyIdBase64, contractId: res.contractId, signedDeployXdr: res.signedTx.toXDR() };
+  /** Create a passkey + deploy its smart account. Auto-submits the deploy via the relayer proxy. */
+  async createWallet(app: string, user: string): Promise<ConnectedWallet> {
+    const res = await this.kit.createWallet(app, user, { autoSubmit: true });
+    if (res.submitResult && !res.submitResult.success) {
+      throw new Error(res.submitResult.error || 'Smart account deploy failed.');
+    }
+    return { credentialId: res.credentialId, contractId: res.contractId };
   }
 
   /**
-   * Reconnect to an existing wallet by its stored keyId. If the wallet's contract address is
-   * already known (e.g. persisted from a prior session), pass it as `contractId` to bind directly
-   * to that wallet and skip the on-chain lookup — this avoids relying on a derivation that can
-   * fail or, after a re-deploy, resolve to a different contract.
+   * Reconnect to a wallet. With a stored credentialId/contractId it binds directly; with neither it
+   * runs a WebAuthn discovery prompt (this is how login works on a NEW device with no stored id).
    */
-  async connectWallet(keyId?: string, contractId?: string): Promise<ConnectedWallet> {
-    // No keyId → passkey-kit runs a WebAuthn discovery prompt (the user picks their passkey) and
-    // derives the wallet from it. This is how login works on a NEW device with no stored keyId.
+  async connectWallet(credentialId?: string, contractId?: string): Promise<ConnectedWallet> {
     const res = await this.kit.connectWallet({
-      ...(keyId ? { keyId } : {}),
-      ...(contractId ? { getContractId: async () => contractId } : {}),
+      ...(credentialId ? { credentialId } : {}),
+      ...(contractId ? { contractId } : {}),
+      prompt: !credentialId && !contractId,
     });
-    return { keyId: res.keyIdBase64, contractId: res.contractId };
+    if (!res) throw new Error('No smart account wallet to connect.');
+    return { credentialId: res.credentialId, contractId: res.contractId };
   }
 
   /**
-   * Sign an assembled-transaction XDR's auth entries with the device passkey.
-   * passkey-kit `sign` returns an AssembledTransaction; we serialize it back to XDR so the
-   * signed tx can be POSTed to the backend Channels relayer submit endpoint.
+   * Invoke a contract method through the connected smart account, signing the auth entries with the
+   * device passkey and submitting gaslessly via the relayer proxy. Returns the tx hash and the
+   * simulated return value (e.g. the new swap id from `lock_swap`).
+   *
+   * `args` keys must match the contract function's parameter names, with values in the contract
+   * client's native form (Address as a string, i128 as a bigint, BytesN<32> as a 32-byte Buffer).
    */
-  async sign(xdr: string, keyId: string): Promise<string> {
-    const signed = await this.kit.sign(xdr, { keyId });
-    return signed.toXDR();
+  async invoke(contractId: string, method: string, args: Record<string, unknown>): Promise<InvokeResult> {
+    const client = await contract.Client.from({
+      contractId,
+      rpcUrl: this.cfg.rpcUrl,
+      networkPassphrase: this.cfg.networkPassphrase,
+      publicKey: this.kit.deployerPublicKey,
+    });
+    const methods = client as unknown as Record<string, (a: Record<string, unknown>) => Promise<contract.AssembledTransaction<unknown>>>;
+    if (typeof methods[method] !== 'function') {
+      throw new Error(`Contract ${contractId} has no method "${method}".`);
+    }
+    const assembled = await methods[method](args);
+    const simulated = assembled.result; // parsed return value from simulation (before submit)
+    const txResult = await this.kit.signAndSubmit(assembled);
+    if (!txResult.success) throw new Error(txResult.error || 'Smart account transaction failed.');
+    return { hash: txResult.hash, result: simulated };
+  }
+
+  /** Disconnect and clear the stored session. */
+  async disconnect(): Promise<void> {
+    await this.kit.disconnect();
+  }
+
+  /** The fee-paying source account the kit uses (sponsored by the relayer when configured). */
+  get deployerPublicKey(): string {
+    return this.kit.deployerPublicKey;
   }
 }

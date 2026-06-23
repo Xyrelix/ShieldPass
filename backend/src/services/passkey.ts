@@ -1,5 +1,5 @@
 import { ChannelsClient } from '@openzeppelin/relayer-plugin-channels';
-import { Keypair, Transaction, TransactionBuilder, hash, rpc, xdr } from '@stellar/stellar-sdk';
+import { Keypair, Transaction, TransactionBuilder, Account, Operation, BASE_FEE, hash, rpc, xdr } from '@stellar/stellar-sdk';
 
 const NETWORK = process.env.STELLAR_NETWORK_PASSPHRASE || 'Test SDF Network ; September 2015';
 const RPC_URL = process.env.STELLAR_RPC_URL || 'https://soroban-testnet.stellar.org';
@@ -100,4 +100,104 @@ async function submitDeployViaRelayer(inner: Transaction): Promise<string> {
 export async function submitSigned(signedXdr: string): Promise<string> {
   const tx = new Transaction(signedXdr, NETWORK);
   return isContractCreate(tx) ? submitDeployViaRelayer(tx) : submitViaChannels(signedXdr);
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// smart-account-kit relayer proxy
+//
+// The kit's RelayerClient POSTs one of two shapes to its `relayerUrl`:
+//   • { func, auth } — a base64 host-function XDR + already-passkey-signed auth entries
+//                      (gasless invoke, e.g. lock_swap). We rebuild the invoke, assemble,
+//                      pay fees from the relayer account, and submit (Channels, RPC fallback).
+//   • { xdr }        — a signed transaction needing source-account auth (e.g. the wallet
+//                      deploy). We fee-bump it with the relayer (the inner signature is kept).
+// It expects a RelayerResponse: { success, hash?, transactionId?, status?, error?, errorCode? }.
+// ──────────────────────────────────────────────────────────────────────────
+
+export interface RelayResult {
+  success: boolean;
+  hash?: string;
+  transactionId?: string;
+  status?: string;
+  error?: string;
+  errorCode?: string;
+}
+
+/** Submit an assembled+signed Soroban tx gaslessly via Channels, falling back to direct RPC. */
+async function submitAssembledTx(tx: Transaction): Promise<string> {
+  const baseUrl = process.env.CHANNELS_URL;
+  const apiKey = process.env.CHANNELS_API_KEY;
+  if (baseUrl && apiKey) {
+    try {
+      const client = new ChannelsClient({ baseUrl, apiKey });
+      const res: any = await client.submitTransaction({ xdr: tx.toXDR() });
+      const hashOut = res?.hash ?? res?.txHash ?? res?.id;
+      if (hashOut) return String(hashOut);
+      throw new Error('Channels returned no hash');
+    } catch (channelErr) {
+      console.warn('[relay] Channels submit failed, falling back to RPC:', (channelErr as Error)?.message);
+    }
+  }
+  // Fallback: the relayer account is the fee source on the assembled tx, so RPC accepts it directly.
+  const server = new rpc.Server(RPC_URL);
+  const sent = await server.sendTransaction(tx);
+  if (sent.status === 'ERROR') {
+    throw new Error(`relay submit rejected: ${JSON.stringify(sent.errorResult ?? sent)}`);
+  }
+  let result = await server.getTransaction(sent.hash);
+  for (let i = 0; i < 15 && result.status === rpc.Api.GetTransactionStatus.NOT_FOUND; i++) {
+    await sleep(1000);
+    result = await server.getTransaction(sent.hash);
+  }
+  if (result.status !== rpc.Api.GetTransactionStatus.SUCCESS) {
+    throw new Error(`relay tx did not succeed (status: ${result.status})`);
+  }
+  return sent.hash;
+}
+
+/** Build an invokeHostFunction tx from a base64 func + signed auth entries, then submit it. */
+async function submitFuncViaRelayer(funcB64: string, authB64: string[]): Promise<string> {
+  const secret = process.env.STELLAR_RELAYER_SECRET;
+  if (!secret) throw new Error('STELLAR_RELAYER_SECRET not set — required to source relayed invokes.');
+  const source = Keypair.fromSecret(secret);
+  const server = new rpc.Server(RPC_URL);
+
+  const hostFunction = xdr.HostFunction.fromXDR(funcB64, 'base64');
+  const authEntries = authB64.map((a) => xdr.SorobanAuthorizationEntry.fromXDR(a, 'base64'));
+  const op = Operation.invokeHostFunction({ func: hostFunction, auth: authEntries });
+
+  const info = await server.getAccount(source.publicKey());
+  const account = new Account(source.publicKey(), info.sequenceNumber());
+  let tx = new TransactionBuilder(account, { fee: BASE_FEE, networkPassphrase: NETWORK })
+    .addOperation(op)
+    .setTimeout(30)
+    .build();
+
+  const sim = await server.simulateTransaction(tx);
+  if (!rpc.Api.isSimulationSuccess(sim)) {
+    throw new Error(`relay simulation failed: ${JSON.stringify(sim)}`);
+  }
+  tx = rpc.assembleTransaction(tx, sim).build();
+  tx.sign(source);
+  return submitAssembledTx(tx);
+}
+
+/** Entry point for POST /wallet/relay — routes the kit's relayer payload to the right submitter. */
+export async function relay(body: { func?: string; auth?: string[]; xdr?: string }): Promise<RelayResult> {
+  try {
+    if (typeof body?.xdr === 'string' && body.xdr.length > 0) {
+      const tx = new Transaction(body.xdr, NETWORK);
+      // A signed inner tx (deploy / source-account auth) is always fee-bumped by the relayer.
+      const hashOut = await submitDeployViaRelayer(tx);
+      return { success: true, hash: hashOut, transactionId: hashOut, status: 'SUCCESS' };
+    }
+    if (typeof body?.func === 'string' && body.func.length > 0) {
+      const hashOut = await submitFuncViaRelayer(body.func, Array.isArray(body.auth) ? body.auth : []);
+      return { success: true, hash: hashOut, transactionId: hashOut, status: 'SUCCESS' };
+    }
+    return { success: false, error: 'Provide either { func, auth } or { xdr }.', errorCode: 'INVALID_PARAMS' };
+  } catch (e: any) {
+    console.error('[relay] submission failed:', e);
+    return { success: false, error: e?.message || 'relay submission failed', errorCode: 'ONCHAIN_FAILED' };
+  }
 }
