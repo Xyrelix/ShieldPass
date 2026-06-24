@@ -20,6 +20,7 @@ export default defineConfig({
     alias: [
       { find: '@', replacement: path.resolve(import.meta.dirname, './src') },
       { find: '@aztec/bb.js', replacement: bbBrowser },
+      { find: /^@shieldpass\/sdk$/, replacement: path.resolve(import.meta.dirname, '../SDK/src/index.ts') },
       {
         find: /^@shieldpass\/sdk\/dist\/(.+)$/,
         replacement: path.resolve(import.meta.dirname, '../SDK/src/$1.ts'),
@@ -29,6 +30,7 @@ export default defineConfig({
       // files in sibling node_modules (SDK) resolve them too. Globals are set in main.tsx.
       { find: /^buffer$/, replacement: path.resolve(import.meta.dirname, 'node_modules/buffer/index.js') },
       { find: /^process$/, replacement: path.resolve(import.meta.dirname, 'node_modules/process/browser.js') },
+      { find: /^crypto$/, replacement: path.resolve(import.meta.dirname, './crypto-mock.js') },
     ],
     dedupe: ['@aztec/bb.js'],
   },

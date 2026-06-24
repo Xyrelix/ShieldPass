@@ -44,15 +44,15 @@ const SUPPORTED_ASSETS = [
 ].filter((a): a is { code: string; label: string; sac: string } => !!a.sac);
 
 const NIGERIAN_BANKS = [
-  { code: "044", name: "Access Bank" },
-  { code: "050", name: "Ecobank" },
-  { code: "011", name: "First Bank" },
-  { code: "058", name: "GTBank" },
-  { code: "50211", name: "Kuda" },
-  { code: "50515", name: "Moniepoint" },
-  { code: "999992", name: "OPay" },
-  { code: "033", name: "UBA" },
-  { code: "057", name: "Zenith Bank" },
+  { code: "044", name: "Access Bank", domain: "accessbankplc.com" },
+  { code: "050", name: "Ecobank", domain: "ecobank.com" },
+  { code: "011", name: "First Bank", domain: "firstbanknigeria.com", logoUrl: "https://raw.githubusercontent.com/ridbay/nigerian-banks/master/src/logos/first-bank-of-nigeria.png" },
+  { code: "058", name: "GTBank", domain: "gtbank.com" },
+  { code: "50211", name: "Kuda", domain: "kuda.com" },
+  { code: "50515", name: "Moniepoint", domain: "moniepoint.com" },
+  { code: "999992", name: "OPay", domain: "opayweb.com" },
+  { code: "033", name: "UBA", domain: "ubagroup.com" },
+  { code: "057", name: "Zenith Bank", domain: "zenithbank.com" },
 ];
 
 export default function SwapPage() {
@@ -73,12 +73,14 @@ export default function SwapPage() {
   const [banks, setBanks] = useState<BankAccount[]>([]);
   const [selectedBankId, setSelectedBankId] = useState<string>("");
   const [showAddBank, setShowAddBank] = useState(false);
-  
+
   // New Bank Form State
   const [bankCode, setBankCode] = useState("");
   const [accountNumber, setAccountNumber] = useState("");
   const [accountName, setAccountName] = useState("");
   const [addingBank, setAddingBank] = useState(false);
+  const [isBankDropdownOpen, setIsBankDropdownOpen] = useState(false);
+  const [isSavedBankDropdownOpen, setIsSavedBankDropdownOpen] = useState(false);
 
   // BVN Modal State
   const [showBvnModal, setShowBvnModal] = useState(false);
@@ -129,7 +131,7 @@ export default function SwapPage() {
     const bankName = NIGERIAN_BANKS.find(b => b.code === bankCode)?.name || bankCode;
     try {
       setAddingBank(true);
-      
+
       // ZERO-STORAGE ARCHITECTURE: Save to local device storage, not the DB
       const newBank = {
         id: Math.random().toString(36).slice(2),
@@ -138,11 +140,11 @@ export default function SwapPage() {
         accountName,
         isDefault: false,
       };
-      
+
       const updatedBanks = [...banks, newBank];
       setBanks(updatedBanks);
       localStorage.setItem(`banks_${session.email}`, JSON.stringify(updatedBanks));
-      
+
       setSelectedBankId(newBank.id);
       setShowAddBank(false);
       setBankCode("");
@@ -290,10 +292,10 @@ export default function SwapPage() {
     >
       <div className="w-full max-w-lg">
         <motion.div variants={fadeUp} className="text-center mb-8">
-          <h1 className="geist-heading text-3xl sm:text-4xl md:text-5xl bg-gradient-to-r from-white via-white to-white/50 bg-clip-text text-transparent font-medium">
+          <h1 className="geist-heading text-3xl sm:text-4xl md:text-5xl text-white font-medium">
             Withdraw
           </h1>
-          <p className="text-white/40 text-sm mt-2 font-light">
+          <p className="text-blue-200/60 text-sm mt-2 font-light">
             Trustless off-ramp. Crypto is time-locked until Naira hits your bank.
           </p>
         </motion.div>
@@ -311,7 +313,7 @@ export default function SwapPage() {
           </motion.div>
         ) : null}
 
-        <motion.div variants={fadeUp} className="bg-white/[0.03] backdrop-blur-xl border border-white/10 shadow-2xl rounded-3xl p-6 sm:p-8 mb-8 space-y-6 font-display text-white">
+        <motion.div variants={fadeUp} className="bg-gradient-to-br from-blue-900/30 to-indigo-900/20 backdrop-blur-xl border border-blue-500/20 shadow-2xl rounded-3xl p-6 sm:p-8 mb-8 space-y-6 font-display text-blue-50">
           {/* Pay Amount */}
           <div className="space-y-1.5">
             <div className="flex justify-between items-center px-1">
@@ -360,10 +362,49 @@ export default function SwapPage() {
             <p className="text-xs text-white/50 font-medium mb-3">Send Naira To</p>
             {banks.length === 0 || showAddBank ? (
               <div className="space-y-3 bg-white/5 backdrop-blur-md border border-white/10 p-4 rounded-xl shadow-lg">
-                <select className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white outline-none text-sm cursor-pointer hover:bg-white/10 transition-colors" value={bankCode} onChange={e => setBankCode(e.target.value)}>
-                  <option value="" className="bg-zinc-900">Select Bank...</option>
-                  {NIGERIAN_BANKS.map(b => <option key={b.code} value={b.code} className="bg-zinc-900">{b.name}</option>)}
-                </select>
+                <div className="relative">
+                  <div
+                    className="w-full bg-white/5 backdrop-blur-md border border-white/10 rounded-lg px-3 py-2.5 text-white text-sm cursor-pointer hover:bg-white/10 transition-colors flex items-center justify-between shadow-inner"
+                    onClick={() => setIsBankDropdownOpen(!isBankDropdownOpen)}
+                  >
+                    {bankCode ? (() => {
+                      const selBank = NIGERIAN_BANKS.find(b => b.code === bankCode);
+                      return (
+                        <div className="flex items-center gap-3">
+                          <img src={selBank?.logoUrl || `https://www.google.com/s2/favicons?domain=${selBank?.domain}&sz=128`} alt="" className="w-5 h-5 rounded-full bg-white/10 object-contain" onError={(e) => e.currentTarget.style.display = 'none'} />
+                          <span className="font-medium">{selBank?.name}</span>
+                        </div>
+                      );
+                    })() : (
+                      <span className="text-white/50">Select Bank...</span>
+                    )}
+                    <svg className={`w-4 h-4 text-white/50 transition-transform duration-300 ${isBankDropdownOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+                  </div>
+
+                  <AnimatePresence>
+                    {isBankDropdownOpen && (
+                      <motion.div
+                        initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}
+                        transition={{ duration: 0.2 }}
+                        className="w-full mt-2 bg-indigo-950/80 backdrop-blur-2xl border border-white/10 rounded-xl overflow-hidden max-h-60 overflow-y-auto custom-scrollbar"
+                      >
+                        {NIGERIAN_BANKS.map(b => (
+                          <div
+                            key={b.code}
+                            className="px-4 py-3 hover:bg-white/10 cursor-pointer flex items-center gap-3 transition-colors border-b border-white/5 last:border-0"
+                            onClick={() => {
+                              setBankCode(b.code);
+                              setIsBankDropdownOpen(false);
+                            }}
+                          >
+                            <img src={b.logoUrl || `https://www.google.com/s2/favicons?domain=${b.domain}&sz=128`} alt={b.name} className="w-6 h-6 rounded-full bg-white/5 shadow-sm object-contain" onError={(e) => e.currentTarget.style.display = 'none'} />
+                            <span className="text-sm text-white/90 font-medium">{b.name}</span>
+                          </div>
+                        ))}
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
                 <input className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white outline-none text-sm placeholder:text-white/20 transition-colors focus:border-indigo-500 focus:bg-white/10" maxLength={10} value={accountNumber} onChange={e => setAccountNumber(e.target.value.replace(/\D/g, ""))} placeholder="10-digit Account Number" />
                 <input className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white outline-none text-sm placeholder:text-white/20 transition-colors focus:border-indigo-500 focus:bg-white/10" value={accountName} onChange={e => setAccountName(e.target.value)} placeholder="Account Holder Name" />
                 <div className="flex gap-2 mt-2">
@@ -373,9 +414,53 @@ export default function SwapPage() {
               </div>
             ) : (
               <div className="flex gap-2">
-                <select className="flex-1 bg-white/5 backdrop-blur-md border border-white/10 rounded-xl px-4 py-3 text-white outline-none cursor-pointer text-sm shadow-lg hover:bg-white/10 transition-colors" value={selectedBankId} onChange={e => setSelectedBankId(e.target.value)}>
-                  {banks.map(b => <option key={b.id} value={b.id} className="bg-zinc-900">{b.bankName} - {b.accountNumber}</option>)}
-                </select>
+                <div className="relative flex-1">
+                  <div
+                    className="w-full bg-white/5 backdrop-blur-md border border-white/10 rounded-xl px-4 py-3 text-white text-sm cursor-pointer hover:bg-white/10 transition-colors flex items-center justify-between shadow-lg"
+                    onClick={() => setIsSavedBankDropdownOpen(!isSavedBankDropdownOpen)}
+                  >
+                    {selectedBankId ? (() => {
+                      const sel = banks.find(b => b.id === selectedBankId);
+                      const nBank = NIGERIAN_BANKS.find(n => n.name === sel?.bankName);
+                      return (
+                        <div className="flex items-center gap-3">
+                          <img src={nBank?.logoUrl || `https://www.google.com/s2/favicons?domain=${nBank?.domain || 'bank.com'}&sz=128`} alt="" className="w-5 h-5 rounded-full bg-white/10 object-contain" onError={(e) => e.currentTarget.style.display = 'none'} />
+                          <span className="font-medium">{sel?.bankName} - {sel?.accountNumber}</span>
+                        </div>
+                      );
+                    })() : (
+                      <span className="text-white/50">Select Bank...</span>
+                    )}
+                    <svg className={`w-4 h-4 text-white/50 transition-transform duration-300 ${isSavedBankDropdownOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+                  </div>
+
+                  <AnimatePresence>
+                    {isSavedBankDropdownOpen && (
+                      <motion.div
+                        initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}
+                        transition={{ duration: 0.2 }}
+                        className="w-full mt-2 bg-indigo-950/90 backdrop-blur-2xl border border-white/10 rounded-xl overflow-hidden max-h-60 overflow-y-auto custom-scrollbar"
+                      >
+                        {banks.map(b => {
+                          const nBank = NIGERIAN_BANKS.find(n => n.name === b.bankName);
+                          return (
+                            <div
+                              key={b.id}
+                              className="px-4 py-3 hover:bg-white/10 cursor-pointer flex items-center gap-3 transition-colors border-b border-white/5 last:border-0"
+                              onClick={() => {
+                                setSelectedBankId(b.id);
+                                setIsSavedBankDropdownOpen(false);
+                              }}
+                            >
+                              <img src={nBank?.logoUrl || `https://www.google.com/s2/favicons?domain=${nBank?.domain || 'bank.com'}&sz=128`} alt="" className="w-6 h-6 rounded-full bg-white/5 shadow-sm object-contain" onError={(e) => e.currentTarget.style.display = 'none'} />
+                              <span className="text-sm text-white/90 font-medium">{b.bankName} - {b.accountNumber}</span>
+                            </div>
+                          );
+                        })}
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
                 <button onClick={() => setShowAddBank(true)} className="px-4 bg-white/5 backdrop-blur-md border border-white/10 rounded-xl hover:bg-white/10 text-white/60 hover:text-white transition-all text-xl shadow-lg" title="Add new bank">+</button>
               </div>
             )}
@@ -386,9 +471,9 @@ export default function SwapPage() {
             disabled={swapping || !quote || !selectedBankId || quoteLoading || (session.onboarded && !session.wallet)}
             className="w-full font-semibold px-6 py-4 rounded-xl bg-white/10 backdrop-blur-md border border-white/20 hover:bg-white/20 hover:border-white/30 text-white shadow-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {swapping ? "Executing Swap..." : 
-             (session.onboarded && !session.wallet) ? "Connecting Wallet..." : 
-             (quote?.requireBvn && !session.bvnVerified ? "Verify Identity to Swap" : "Swap Now")}
+            {swapping ? "Executing Swap..." :
+              (session.onboarded && !session.wallet) ? "Connecting Wallet..." :
+                (quote?.requireBvn && !session.bvnVerified ? "Verify Identity to Swap" : "Swap Now")}
           </button>
         </motion.div>
       </div>
@@ -429,7 +514,7 @@ export default function SwapPage() {
                 <p className="text-white/40 text-sm font-mono tracking-wider uppercase mb-8">{
                   swapProof.status === "fetching-path" ? "Fetching membership path"
                     : swapProof.status === "loading-circuit" ? "Loading circuit"
-                    : "Generating proof in-browser"
+                      : "Generating proof in-browser"
                 }</p>
                 <p className="text-white/50 text-xs mt-6 leading-relaxed font-light">Your private credentials never leave your browser. A real ZK proof is generated locally to gate this action on-chain.</p>
               </div>

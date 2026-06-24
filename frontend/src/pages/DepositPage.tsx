@@ -178,7 +178,7 @@ export default function DepositPage() {
           </motion.div>
         ) : null}
 
-        <motion.div variants={fadeUp} className="border border-white/10 bg-white/[0.02] rounded-2xl p-6 space-y-5">
+        <motion.div variants={fadeUp} className="bg-gradient-to-br from-blue-900/30 to-indigo-900/20 backdrop-blur-xl border border-blue-500/20 shadow-2xl rounded-3xl p-6 space-y-5 font-display text-blue-50">
           <div>
             <label className="text-white/40 text-xs font-mono tracking-wider uppercase">
               {isShield ? `Amount (${poolAsset})` : "Amount to unshield"}

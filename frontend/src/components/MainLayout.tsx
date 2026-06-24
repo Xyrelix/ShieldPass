@@ -9,6 +9,8 @@ import { api } from "../lib/api";
 import NotificationBell from "./NotificationBell";
 
 
+import DarkVeil from "./ui/DarkVeil";
+
 interface MainLayoutProps {
   children: React.ReactNode;
   walletComponent?: React.ReactNode;
@@ -35,12 +37,16 @@ export default function MainLayout({
   return (
     <div className="min-h-screen flex flex-col relative font-sans">
       {/* Renders the background gradient requested by the user */}
-      {!["/about", "/docs"].includes(currentPath) ? (
+      {["/withdraw", "/send", "/shield", "/dashboard"].includes(currentPath) ? (
+        <div className="fixed inset-0 -z-20">
+          <DarkVeil speed={0.4} warpAmount={0.3} noiseIntensity={0.04} scanlineIntensity={0.2} scanlineFrequency={100} />
+        </div>
+      ) : !["/about", "/docs"].includes(currentPath) ? (
         <GradientBackground />
       ) : (
         <DarkBackground />
       )}
-      <div className="absolute inset-0 -z-10 bg-black/20" />
+      <div className="fixed inset-0 -z-10 bg-black/20 pointer-events-none" />
 
       {/* FLOATING GLASS CAPSULE HEADER */}
       <motion.header

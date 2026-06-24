@@ -167,7 +167,7 @@ export default function SendPage() {
             className="border border-emerald-500/20 bg-emerald-500/[0.03] p-4 rounded-2xl mb-6 text-emerald-300 text-sm">{success}</motion.div>
         ) : null}
 
-        <motion.div variants={fadeUp} className="border border-white/10 bg-white/[0.02] rounded-2xl p-6 space-y-5">
+        <motion.div variants={fadeUp} className="bg-gradient-to-br from-blue-900/30 to-indigo-900/20 backdrop-blur-xl border border-blue-500/20 shadow-2xl rounded-3xl p-6 space-y-5 font-display text-blue-50">
           {!isShielded ? (
             <div>
               <label className="text-white/40 text-xs font-mono tracking-wider uppercase">Asset</label>

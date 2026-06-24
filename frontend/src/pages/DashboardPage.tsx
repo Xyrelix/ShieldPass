@@ -98,7 +98,7 @@ export default function DashboardPage() {
         </motion.div>
 
         <motion.div variants={fadeUp} className="mb-12">
-          <div className="bg-white/5 backdrop-blur-md rounded-2xl p-6 flex flex-col sm:flex-row items-center justify-between gap-6 border border-white/10 shadow-xl">
+          <div className="bg-gradient-to-br from-blue-900/30 to-indigo-900/20 backdrop-blur-xl rounded-3xl p-6 flex flex-col sm:flex-row items-center justify-between gap-6 border border-blue-500/20 shadow-2xl">
             <div className="flex items-center gap-4">
               <div className="w-10 h-10 rounded-full bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center">
                 <svg className="w-5 h-5 text-indigo-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
@@ -125,7 +125,7 @@ export default function DashboardPage() {
         </motion.div>
 
         {!address && (
-          <motion.div variants={fadeUp} className="bg-white/5 backdrop-blur-md rounded-[2rem] p-12 text-center border border-white/10 shadow-2xl relative overflow-hidden">
+          <motion.div variants={fadeUp} className="bg-gradient-to-br from-blue-900/30 to-indigo-900/20 backdrop-blur-xl rounded-[2rem] p-12 text-center border border-blue-500/20 shadow-2xl relative overflow-hidden text-blue-50">
             <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-48 h-48 bg-indigo-500/5 rounded-full blur-[80px]" />
             <p className="text-white/60 text-sm max-w-sm mx-auto leading-relaxed">Onboard to pull live on-chain balances and your swap history.</p>
             <Link to="/onboarding" className="mt-6 inline-block font-mono text-xs px-6 py-3 rounded-xl bg-indigo-600 text-white font-medium hover:bg-indigo-500 transition-colors">Start Onboarding</Link>
@@ -153,7 +153,7 @@ export default function DashboardPage() {
                     balances.map((b) => {
                       const theme = getAssetTheme(b.assetCode);
                       return (
-                        <motion.div key={b.assetCode} variants={fadeUp} whileHover={{ y: -3, scale: 1.01 }} className={`bg-white/5 backdrop-blur-md rounded-2xl p-6 sm:p-8 border ${theme.bg} relative overflow-hidden shadow-lg`}>
+                        <motion.div key={b.assetCode} variants={fadeUp} whileHover={{ y: -3, scale: 1.01 }} className={`bg-gradient-to-br from-blue-900/30 to-indigo-900/20 backdrop-blur-xl rounded-3xl p-6 sm:p-8 border ${theme.bg} relative overflow-hidden shadow-2xl`}>
                           <div className={`absolute top-0 right-0 w-36 h-36 ${theme.glow} rounded-full blur-[40px] pointer-events-none -mr-10 -mt-10`} />
                           <p className="font-mono text-xs text-white/50 mb-3 uppercase tracking-widest font-semibold">{b.assetCode} Vault</p>
                           <p className="geist-heading text-3xl sm:text-4xl font-light text-white">{parseFloat(b.balance).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 })}</p>
@@ -180,7 +180,7 @@ export default function DashboardPage() {
                 <div className="bg-white/5 rounded-2xl p-10 text-center border border-white/5 shadow-md"><p className="text-white/50 text-sm">No swaps yet. Your settlements will appear here.</p></div>
               )}
               {!historyLoading && !historyError && history.length > 0 && (
-                <div className="bg-white/5 backdrop-blur-md rounded-2xl overflow-hidden divide-y divide-white/10 border border-white/10 shadow-xl">
+                <div className="bg-gradient-to-br from-blue-900/30 to-indigo-900/20 backdrop-blur-xl rounded-3xl overflow-hidden divide-y divide-white/10 border border-blue-500/20 shadow-2xl">
                   {history.map((t, i) => (
                     <motion.div key={t.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05, duration: 0.3 }} className="flex flex-col sm:flex-row items-start sm:items-center justify-between p-4 sm:p-6 hover:bg-white/5 transition-colors gap-4">
                       <div className="flex flex-col sm:flex-row items-start sm:items-baseline gap-2 sm:gap-6 w-full">
