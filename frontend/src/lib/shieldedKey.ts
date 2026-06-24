@@ -45,13 +45,20 @@ export async function deriveIdentityFromPasskey(credentialIdB64?: string): Promi
  * fallback when PRF isn't available on the device/credential. The fallback carries the
  * "changing your PIN orphans old notes" caveat — see the V2 spec.
  */
+// Enable once wallet creation requests the WebAuthn `prf` extension (smart-account-kit).
+// Until then, attempting PRF just adds a SECOND Face-ID/Windows-Hello prompt that fails,
+// so we derive from the PIN directly — one prompt, no failed extra prompt.
+const USE_PASSKEY_PRF = false;
+
 export async function deriveIdentity(credentialId: string | undefined, pin: string, email: string): Promise<ShieldedIdentity> {
-  try {
-    return await deriveIdentityFromPasskey(credentialId);
-  } catch (e) {
-    console.warn('[shieldedKey] passkey PRF unavailable, using PIN-derived fallback:', e);
-    return deriveIdentityFromPhrase(`${pin}:${email}`);
+  if (USE_PASSKEY_PRF) {
+    try {
+      return await deriveIdentityFromPasskey(credentialId);
+    } catch (e) {
+      console.warn('[shieldedKey] passkey PRF unavailable, using PIN-derived fallback:', e);
+    }
   }
+  return deriveIdentityFromPhrase(`${pin}:${email}`);
 }
 
 /** Fallback: derive identity from a recovery phrase / arbitrary secret string. */
