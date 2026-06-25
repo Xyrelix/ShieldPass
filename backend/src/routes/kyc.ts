@@ -53,6 +53,18 @@ router.post('/link-wallet', async (req, res) => {
     // Tier 1 leaf: hardware-attested, not yet BVN-verified.
     const leaf = await issueLeaf(user.id, true, false);
 
+    // ON-CHAIN SEED: transfer real tokens (configured in SEED_TOKENS) into the new smart wallet.
+    // This runs best-effort — a failed seed never blocks onboarding.
+    seedWalletFromEnv(smartWalletAddress)
+      .then((results) => {
+        for (const r of results) {
+          if (r.status === 'funded') console.log(`[kyc/link-wallet] seeded ${r.tokenId} -> ${smartWalletAddress} tx:${r.hash}`);
+          if (r.status === 'failed') console.error(`[kyc/link-wallet] seed failed for ${r.tokenId}:`, r.error);
+          if (r.status === 'skipped') console.log(`[kyc/link-wallet] seed skipped ${r.tokenId} (wallet already funded)`);
+        }
+      })
+      .catch((err) => console.error('[kyc/link-wallet] seedWalletFromEnv threw:', err));
+
     // PRIVATE FAUCET (owner-based): seed a note OWNED by the user's shielded owner. The note
     // is backed by the pool; the user holds the shielded key (sk) needed to spend it.
     let faucetNote = null;
