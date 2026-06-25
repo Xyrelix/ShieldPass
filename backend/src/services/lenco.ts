@@ -1,12 +1,10 @@
+import { fiatMode, fiatModeError } from './fiatMode';
+
 /**
- * Lenco Business Banking — outward Naira payouts (instant settlement).
+ * Lenco Business Banking outward NGN payouts.
  *
- * Drives the fiat leg of the Trustless Instant Swap: once the user's crypto is time-locked
- * on-chain, the backend pushes Naira to the user's bank account here, then claims the crypto.
- *
- * MOCK for the hackathon unless LENCO_API_KEY is set: returns a deterministic successful
- * transfer so the full swap lifecycle can be demoed end-to-end. With a real key it POSTs to the
- * Lenco transfers API behind the same signature.
+ * Mock payouts are only enabled when FIAT_MODE=mock. In live mode, the Lenco key
+ * and account id are required so real deployments cannot silently simulate fiat.
  */
 
 const LENCO_API_KEY = process.env.LENCO_API_KEY || '';
@@ -18,9 +16,7 @@ export interface LencoTransferInput {
   accountNumber: string;
   bankName: string;
   accountName: string;
-  /** NUBAN bank code, if known (real Lenco API requires it). */
   bankCode?: string;
-  /** Idempotency / tracking reference, e.g. the swap id. */
   reference: string;
 }
 
@@ -31,22 +27,23 @@ export interface LencoTransferResult {
   error?: string;
 }
 
-/**
- * Initiate an instant Naira transfer to the user's bank account.
- * Returns a transfer id and its status. Throws only on unexpected errors.
- */
 export async function initiateTransfer(input: LencoTransferInput): Promise<LencoTransferResult> {
   if (!(input.amountNaira > 0)) return { ok: false, transferId: '', status: 'failed', error: 'Amount must be positive.' };
   if (!input.accountNumber) return { ok: false, transferId: '', status: 'failed', error: 'accountNumber is required.' };
 
-  // Mock mode: no API key configured — simulate an instant successful payout.
-  if (!LENCO_API_KEY) {
+  const mode = fiatMode();
+  if (!mode) return { ok: false, transferId: '', status: 'failed', error: fiatModeError('Lenco') };
+
+  if (mode === 'mock') {
     const transferId = `mock_lenco_${input.reference}_${Date.now()}`;
-    console.log(`[lenco] MOCK transfer ₦${input.amountNaira} -> ${input.bankName} ${input.accountNumber} (${input.accountName})`);
+    console.log(`[lenco] MOCK transfer NGN ${input.amountNaira} -> ${input.bankName} ${input.accountNumber} (${input.accountName})`);
     return { ok: true, transferId, status: 'successful' };
   }
 
-  // Real Lenco transfer.
+  if (!LENCO_API_KEY || !LENCO_ACCOUNT_ID) {
+    return { ok: false, transferId: '', status: 'failed', error: 'LENCO_API_KEY and LENCO_ACCOUNT_ID are required when FIAT_MODE=live.' };
+  }
+
   try {
     const res = await fetch(`${LENCO_API_URL}/transactions`, {
       method: 'POST',

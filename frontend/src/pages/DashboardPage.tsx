@@ -6,13 +6,9 @@ import { useSession } from "../lib/session";
 import ErrorNotice from "../components/ErrorNotice";
 import ShieldedBalance from "../components/ShieldedBalance";
 import type { Balance, SwapRecord } from "../types";
+import { PUBLIC_ASSETS, assetByCode, assetLabel, formatUnits } from "../lib/assets";
 
 const RPC_URL = "https://soroban-testnet.stellar.org";
-const TOKENS = [
-  { code: "XLM", sac: import.meta.env.VITE_XLM_SAC as string | undefined },
-  { code: "USDC", sac: import.meta.env.VITE_USDC_SAC as string | undefined },
-  { code: "NGNC", sac: import.meta.env.VITE_NGNC_SAC as string | undefined },
-];
 
 const fadeUp = {
   hidden: { opacity: 0, y: 30, filter: "blur(6px)", scale: 0.98 },
@@ -49,12 +45,12 @@ export default function DashboardPage() {
       try {
         const { StellarContractClient } = await import("@shieldpass/sdk/dist/stellar");
         const { Networks } = await import("@stellar/stellar-sdk");
-        const configured = TOKENS.filter((t) => !!t.sac);
+        const configured = PUBLIC_ASSETS;
         const out: Balance[] = [];
         for (const t of configured) {
           const client = new StellarContractClient(RPC_URL, Networks.TESTNET, t.sac as string);
           const raw = await client.getTokenBalance(t.sac as string, address);
-          out.push({ assetCode: t.code, balance: (Number(raw) / 1e7).toFixed(2) });
+          out.push({ assetCode: t.code, balance: formatUnits(raw, t.decimals, 4) });
         }
         setBalances(out);
       } catch (err) {
@@ -156,7 +152,7 @@ export default function DashboardPage() {
                         <motion.div key={b.assetCode} variants={fadeUp} whileHover={{ y: -3, scale: 1.01 }} className={`bg-gradient-to-br from-blue-900/30 to-indigo-900/20 backdrop-blur-xl rounded-3xl p-6 sm:p-8 border ${theme.bg} relative overflow-hidden shadow-2xl`}>
                           <div className={`absolute top-0 right-0 w-36 h-36 ${theme.glow} rounded-full blur-[40px] pointer-events-none -mr-10 -mt-10`} />
                           <p className="font-mono text-xs text-white/50 mb-3 uppercase tracking-widest font-semibold">{b.assetCode} Vault</p>
-                          <p className="geist-heading text-3xl sm:text-4xl font-light text-white">{parseFloat(b.balance).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 })}</p>
+                          <p className="geist-heading text-3xl sm:text-4xl font-light text-white">{b.balance}</p>
                           <div className="mt-4 flex items-center justify-between border-t border-white/10 pt-3">
                             <span className="text-[10px] font-mono text-white/40 uppercase tracking-widest">SAC Balance</span>
                             <span className={`w-2 h-2 rounded-full ${theme.text} bg-current animate-pulse`} />
@@ -186,8 +182,10 @@ export default function DashboardPage() {
                       <div className="flex flex-col sm:flex-row items-start sm:items-baseline gap-2 sm:gap-6 w-full">
                         <span className={`font-mono text-[10px] uppercase tracking-widest w-16 text-xs text-indigo-400`}>SELL</span>
                         <div className="flex items-baseline gap-1.5">
-                          <span className="geist-heading text-xl font-light text-white">{t.cryptoAmount}</span>
-                          <span className="text-xs font-semibold text-white/50">CRYPTO</span>
+                          <span className="geist-heading text-xl font-light text-white">
+                            {formatUnits(t.cryptoAmountUnits || String(Math.round(t.cryptoAmount * 1e7)), assetByCode(t.assetCode)?.decimals ?? 7, 4)}
+                          </span>
+                          <span className="text-xs font-semibold text-white/50">{assetLabel(t.assetCode)}</span>
                         </div>
                         <span className="font-mono text-sm text-white/60">₦{t.nairaAmount.toLocaleString()}</span>
                       </div>

@@ -67,6 +67,7 @@ pub struct ShieldedPool;
 impl ShieldedPool {
     pub fn init(env: Env, admin: Address, token_address: Address, tier2_threshold: i128) {
         let s = env.storage().instance();
+        assert!(!s.has(&DataKey::Admin), "already initialized");
         s.set(&DataKey::Admin, &admin);
         s.set(&DataKey::Token, &token_address);
         s.set(&DataKey::NextIndex, &0u32);

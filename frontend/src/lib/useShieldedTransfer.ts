@@ -6,6 +6,7 @@ import {
 } from "@shieldpass/sdk";
 import { api } from "./api";
 import { useSession, type ShieldedNote } from "./session";
+import { assetByCode } from "./assets";
 
 const buf = (u8: Uint8Array): Buffer => Buffer.from(u8);
 const hex = (u8: Uint8Array) => Array.from(u8).map((b) => b.toString(16).padStart(2, "0")).join("");
@@ -30,16 +31,17 @@ export function useShieldedTransfer(apiBaseUrl: string) {
         return { owner: BigInt(id.owner), encPub: fromHex(id.encPub) };
     }
 
-    const send = async (recipient: string, sendAmount: bigint): Promise<boolean> => {
+    const send = async (recipient: string, sendAmount: bigint, assetCode?: string): Promise<boolean> => {
         setError(null);
         try {
             if (!session.identity) throw new Error("Shielded key locked — unlock it to send privately.");
             if (!session.wallet || !session.address) throw new Error("Wallet not connected.");
-            const escrowId = import.meta.env.VITE_ESCROW_CONTRACT_ID as string;
+            const asset = assetByCode(assetCode ?? session.notes[0]?.asset ?? "XLM");
+            if (!asset) throw new Error("Asset is not configured.");
             const sk = session.identity.sk;
 
-            const note = session.notes.find((n) => BigInt(n.amount) >= sendAmount);
-            if (!note) throw new Error("No single shielded note covers this amount.");
+            const note = session.notes.find((n) => n.asset === asset.code && BigInt(n.amount) >= sendAmount);
+            if (!note) throw new Error(`No single shielded ${asset.code} note covers this amount.`);
             const compliance: Compliance = {
                 hardware_attested: BigInt(note.compliance.hardware_attested),
                 bvn_verified: BigInt(note.compliance.bvn_verified),
@@ -75,7 +77,7 @@ export function useShieldedTransfer(apiBaseUrl: string) {
             const outChange = fieldDec(bundle.publicSignals[2]);
 
             setStatus("submitting");
-            await session.wallet.invoke(escrowId, "shielded_transfer", {
+            await session.wallet.invoke(asset.poolContractId, "shielded_transfer", {
                 proof_a: buf(bundle.proof.a), proof_b: buf(bundle.proof.b), proof_c: buf(bundle.proof.c),
                 public_signals: bundle.publicSignals.map(buf),
             });

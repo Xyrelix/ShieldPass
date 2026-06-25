@@ -1,4 +1,5 @@
 import { useSession } from "../lib/session";
+import { assetByCode, formatUnits } from "../lib/assets";
 
 /**
  * Displays the user's PRIVATE shielded note balance (session.note). This value is
@@ -8,9 +9,12 @@ import { useSession } from "../lib/session";
  */
 export default function ShieldedBalance({ compact = false }: { compact?: boolean }) {
   const { notes } = useSession();
-  // Single-asset pool: total = sum of note amounts; asset label from the notes.
-  const total = notes.reduce((acc, n) => acc + BigInt(n.amount), 0n);
-  const asset = notes[0]?.asset ?? "XLM";
+  const totals = notes.reduce<Record<string, bigint>>((acc, note) => {
+    const code = note.asset || "XLM";
+    acc[code] = (acc[code] ?? 0n) + BigInt(note.amount);
+    return acc;
+  }, {});
+  const rows = Object.entries(totals);
   const hasBalance = notes.length > 0;
 
   return (
@@ -27,8 +31,12 @@ export default function ShieldedBalance({ compact = false }: { compact?: boolean
 
         {hasBalance ? (
           <>
-            <div className="text-white font-medium text-3xl tracking-tight">
-              {total.toString()} <span className="text-white/50 text-xl">{asset}</span>
+            <div className="space-y-1">
+              {rows.map(([asset, total]) => (
+                <div key={asset} className="text-white font-medium text-3xl tracking-tight">
+                  {formatUnits(total, assetByCode(asset)?.decimals ?? 7, 4)} <span className="text-white/50 text-xl">{asset}</span>
+                </div>
+              ))}
             </div>
             {!compact && (
               <p className="text-white/35 text-xs mt-2 leading-relaxed">

@@ -4,8 +4,9 @@ import { motion } from "framer-motion";
 import { api } from "../lib/api";
 import { useSession } from "../lib/session";
 import { makeWallet } from "../lib/smartAccount";
-import { deriveIdentity } from "../lib/shieldedKey";
+import { deriveSeed, deriveIdentityFromSeed, type IdentitySource } from "../lib/shieldedKey";
 import { humanizeError } from "@shieldpass/sdk/dist/errors";
+import { unlockBankVault } from "../lib/bankVault";
 
 import { AnimatedLayout } from "../components/ui/animated-characters-login-page";
 
@@ -36,6 +37,25 @@ export default function OnboardingPage() {
 
   const [isTyping, setIsTyping] = useState(false);
 
+  async function resolveIdentityMaterial(credentialId?: string): Promise<{ source: IdentitySource; seed: Uint8Array }> {
+    try {
+      const seed = await deriveSeed({ kind: "passkey", credentialId });
+      return { source: { kind: "passkey", credentialId }, seed };
+    } catch {
+      const recovery = window.prompt("Passkey PRF is unavailable here. Enter your recovery phrase to derive your shielded identity:");
+      if (recovery && recovery.trim()) {
+        const seed = await deriveSeed({ kind: "recovery", phrase: recovery.trim() });
+        return { source: { kind: "recovery", phrase: recovery.trim() }, seed };
+      }
+      const password = window.prompt("Use a password instead. Save it carefully; you'll need it on other devices:");
+      if (password && password.trim()) {
+        const seed = await deriveSeed({ kind: "password", password: password.trim(), email });
+        return { source: { kind: "password", password: password.trim(), email }, seed };
+      }
+      throw new Error("A passkey recovery phrase or password is required.");
+    }
+  }
+
   async function createPasskey() {
     setErrorMessage(null);
     setStage("deploying");
@@ -63,7 +83,9 @@ export default function OnboardingPage() {
         await wallet.connectWallet(check.passkeyKeyId, check.smartWalletAddress); // Prompts Face ID / Touch ID
         credentialId = check.passkeyKeyId;
         address = check.smartWalletAddress;
-        identity = await deriveIdentity(credentialId, pin, email); // same identity re-derived
+        const material = await resolveIdentityMaterial(credentialId);
+        identity = deriveIdentityFromSeed(material.seed); // same identity re-derived
+        await unlockBankVault(material.seed, email);
 
         const reissue = await api.reissueSalt({ email, pin });
         secretSalt = reissue.secretSalt;
@@ -76,7 +98,9 @@ export default function OnboardingPage() {
         const res = await wallet.createWallet("ShieldPass", email);
         credentialId = res.credentialId;
         address = res.contractId;
-        identity = await deriveIdentity(credentialId, pin, email);
+        const material = await resolveIdentityMaterial(credentialId);
+        identity = deriveIdentityFromSeed(material.seed);
+        await unlockBankVault(material.seed, email);
 
         // publish the shielded identity so others can send by email; faucet note is owned by us.
         const linkRes = await api.linkWallet({

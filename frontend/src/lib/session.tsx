@@ -2,6 +2,7 @@ import { createContext, useContext, useState, useEffect } from 'react'
 import type { ReactNode } from 'react'
 import type { SmartAccountWalletClient } from '@shieldpass/sdk/dist/smartAccount'
 import type { ShieldedIdentity } from '@shieldpass/sdk'
+import { lockBankVault } from './bankVault'
 
 /** A shielded note the user owns (owner-based model; spent with the user's shielded key). */
 export interface ShieldedNote {
@@ -78,6 +79,19 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         makeWallet().then(async w => {
           try { await w.connectWallet(state.credentialId, state.address ?? undefined) }
           catch (e) { console.error('[session] reconnect failed:', e) }
+          import('./shieldedKey').then(async ({ deriveSeed, deriveIdentityFromSeed }) => {
+            try {
+              const seed = await deriveSeed({ kind: 'passkey', credentialId: state.credentialId });
+              const identity = deriveIdentityFromSeed(seed);
+              if (state.email) {
+                const { unlockBankVault } = await import('./bankVault');
+                await unlockBankVault(seed, state.email);
+              }
+              setState(s => { const next = { ...s, identity }; savePersisted(next); return next; })
+            } catch (e) {
+              console.warn('[session] identity rehydrate failed:', e)
+            }
+          }).catch(console.error)
           setState(s => { const next = { ...s, wallet: w }; savePersisted(next); return next; })
         }).catch(console.error)
       }).catch(console.error)
@@ -99,7 +113,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       })
       return added
     },
-    reset: () => { try { localStorage.removeItem(STORAGE_KEY) } catch { /* ignore */ } setState(EMPTY) },
+    reset: () => { try { localStorage.removeItem(STORAGE_KEY) } catch { /* ignore */ } lockBankVault(); setState(EMPTY) },
   }
   return <SessionCtx.Provider value={value}>{children}</SessionCtx.Provider>
 }

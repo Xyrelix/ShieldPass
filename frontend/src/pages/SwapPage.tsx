@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+﻿import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "motion/react";
 import { api } from "../lib/api";
@@ -7,6 +7,8 @@ import { useSwapProof } from "../lib/useSwapProof";
 import ErrorNotice from "../components/ErrorNotice";
 import { Buffer } from "buffer";
 import type { BankAccount, Quote } from "../types";
+import { SUPPORTED_ASSETS as SUPPORTED_SWAP_ASSETS, parseUnits } from "../lib/assets";
+import { addBank, loadBanks } from "../lib/bankVault";
 
 const buf = (u8: Uint8Array): Buffer => Buffer.from(u8);
 // Random 254-bit field element (decimal) for the per-swap bank blinding salt.
@@ -37,11 +39,6 @@ const stagger = {
   },
 };
 
-const SUPPORTED_ASSETS = [
-  { code: "XLM", label: "XLM — Stellar Lumens", sac: import.meta.env.VITE_XLM_SAC as string | undefined },
-  { code: "USDC", label: "USDC — USD Coin", sac: import.meta.env.VITE_USDC_SAC as string | undefined },
-  { code: "NGNC", label: "NGNC — Naira Coin", sac: import.meta.env.VITE_NGNC_SAC as string | undefined },
-].filter((a): a is { code: string; label: string; sac: string } => !!a.sac);
 
 const NIGERIAN_BANKS = [
   { code: "044", name: "Access Bank", domain: "accessbankplc.com" },
@@ -61,7 +58,7 @@ export default function SwapPage() {
   const swapProof = useSwapProof(import.meta.env.VITE_API_URL as string);
 
   // Swap State
-  const [assetType, setAssetType] = useState(SUPPORTED_ASSETS[0]?.code ?? "");
+  const [assetType, setAssetType] = useState<string>(SUPPORTED_SWAP_ASSETS[0]?.code ?? "");
   const [cryptoAmount, setCryptoAmount] = useState("");
   const [quote, setQuote] = useState<Quote | null>(null);
   const [quoteLoading, setQuoteLoading] = useState(false);
@@ -92,14 +89,14 @@ export default function SwapPage() {
 
   useEffect(() => {
     if (session.email) {
-      // ZERO-STORAGE ARCHITECTURE: Read banks from local device storage
-      const localBanks = JSON.parse(localStorage.getItem(`banks_${session.email}`) || '[]');
-      setBanks(localBanks);
-      if (localBanks.length > 0 && !selectedBankId) {
-        setSelectedBankId(localBanks[0].id);
-      }
+      loadBanks(session.email)
+        .then((saved) => {
+          setBanks(saved);
+          if (saved.length > 0 && !selectedBankId) setSelectedBankId(saved[0].id);
+        })
+        .catch(() => setBanks([]));
     }
-  }, [session.email]);
+  }, [session.email, session.identity]);
 
   useEffect(() => {
     const val = Number(cryptoAmount);
@@ -107,7 +104,7 @@ export default function SwapPage() {
       setQuote(null);
       return;
     }
-    const token = SUPPORTED_ASSETS.find(a => a.code === assetType);
+    const token = SUPPORTED_SWAP_ASSETS.find(a => a.code === assetType);
     if (!token) return;
 
     setQuoteLoading(true);
@@ -132,7 +129,6 @@ export default function SwapPage() {
     try {
       setAddingBank(true);
 
-      // ZERO-STORAGE ARCHITECTURE: Save to local device storage, not the DB
       const newBank = {
         id: Math.random().toString(36).slice(2),
         bankName,
@@ -141,9 +137,8 @@ export default function SwapPage() {
         isDefault: false,
       };
 
-      const updatedBanks = [...banks, newBank];
+      const updatedBanks = await addBank(session.email, newBank);
       setBanks(updatedBanks);
-      localStorage.setItem(`banks_${session.email}`, JSON.stringify(updatedBanks));
 
       setSelectedBankId(newBank.id);
       setShowAddBank(false);
@@ -185,7 +180,7 @@ export default function SwapPage() {
       return;
     }
     if (!session.secretSalt || !session.merkleRoot) {
-      setActionError("Missing attestation — re-onboard.");
+      setActionError("Missing attestation â€” re-onboard.");
       return;
     }
     if (!selectedBankId) {
@@ -203,9 +198,8 @@ export default function SwapPage() {
       return;
     }
 
-    const token = SUPPORTED_ASSETS.find(a => a.code === assetType);
-    const escrowId = import.meta.env.VITE_ESCROW_CONTRACT_ID as string;
-    if (!token || !escrowId) {
+    const token = SUPPORTED_SWAP_ASSETS.find(a => a.code === assetType);
+    if (!token) {
       setActionError("Missing smart contract config.");
       return;
     }
@@ -216,10 +210,10 @@ export default function SwapPage() {
       if (!session.wallet || !session.address) {
         throw new Error("Wallet not connected. Please log in again.");
       }
-      const swapAmt = BigInt(cryptoAmount);
-      const currentNote = session.notes.find((n) => BigInt(n.amount) >= swapAmt);
+      const swapAmt = parseUnits(cryptoAmount, token.decimals);
+      const currentNote = session.notes.find((n) => n.asset === token.code && BigInt(n.amount) >= swapAmt);
       if (!currentNote) {
-        throw new Error("No single shielded note covers this amount. Shield more, or withdraw a smaller amount.");
+        throw new Error(`No single shielded ${token.code} note covers this amount. Shield more, or withdraw a smaller amount.`);
       }
       const selectedBank = banks.find(b => b.id === selectedBankId);
       if (!selectedBank) throw new Error("Bank details not found locally.");
@@ -228,7 +222,7 @@ export default function SwapPage() {
       //    the contract verifies the proof on-chain. Spends session.note, mints a change note.
       const pr = await swapProof.generate(
         currentNote,
-        BigInt(cryptoAmount),
+        swapAmt,
         { accountNumber: BigInt(selectedBank.accountNumber.replace(/\D/g, "") || "0"), salt: randomSalt() },
         quote.requireBvn,
       );
@@ -236,7 +230,7 @@ export default function SwapPage() {
 
       // 2. Submit confidential_swap through the smart account (passkey-signed, gasless).
       //    The deployed contract's spec encodes Vec<BytesN<32>> from an array of 32-byte Buffers.
-      const swapRes = await session.wallet.invoke(escrowId, "confidential_swap", {
+      const swapRes = await session.wallet.invoke(token.poolContractId, "confidential_swap", {
         proof_a: buf(pr.proof.a),
         proof_b: buf(pr.proof.b),
         proof_c: buf(pr.proof.c),
@@ -258,6 +252,7 @@ export default function SwapPage() {
         tokenAddress: token.sac,
         assetCode: token.code,
         cryptoAmount: Number(cryptoAmount),
+        cryptoAmountUnits: swapAmt.toString(),
         onChainSwapId,
         nullifier: pr.nullifier,
         changeCommitment,
@@ -267,7 +262,7 @@ export default function SwapPage() {
       if (exec.changeLeafIndex !== null) {
         const changeNotes = BigInt(pr.changeNote.amount) > 0n ? [{
           amount: pr.changeNote.amount,
-          asset: currentNote.asset,
+          asset: token.code,
           randomness: pr.changeNote.randomness,
           leafIndex: exec.changeLeafIndex,
           compliance: currentNote.compliance,
@@ -329,7 +324,7 @@ export default function SwapPage() {
                 className="bg-white/10 border border-white/10 rounded-lg px-3 py-2 text-white font-semibold outline-none cursor-pointer hover:bg-white/20 transition-colors"
                 value={assetType} onChange={(e) => setAssetType(e.target.value)}
               >
-                {SUPPORTED_ASSETS.map((a) => <option key={a.code} value={a.code} className="bg-zinc-900">{a.code}</option>)}
+                {SUPPORTED_SWAP_ASSETS.map((a) => <option key={a.code} value={a.code} className="bg-zinc-900">{a.code} - {a.name}</option>)}
               </select>
             </div>
           </div>
@@ -348,12 +343,17 @@ export default function SwapPage() {
             </div>
             <div className="flex bg-white/5 backdrop-blur-md border border-white/10 rounded-xl p-4 transition-all opacity-80 shadow-lg">
               <span className="w-full bg-transparent text-2xl outline-none text-white font-medium">
-                {quote ? `₦${quote.nairaAmount.toLocaleString()}` : "₦0.00"}
+                {quote ? `â‚¦${quote.nairaAmount.toLocaleString()}` : "â‚¦0.00"}
               </span>
               <span className="px-3 py-1 text-white/60 font-semibold text-lg">NGN</span>
             </div>
+            {quote && (
+              <p className="text-xs text-white/35 px-1 pt-1">
+                1 {quote.assetCode} = NGN {quote.rate.toLocaleString(undefined, { maximumFractionDigits: 2 })} via {quote.source}
+              </p>
+            )}
             {quote && quote.requireBvn && !session.bvnVerified && (
-              <p className="text-xs text-amber-400/80 px-1 pt-1">⚠️ This amount requires Tier 2 Identity Verification (BVN).</p>
+              <p className="text-xs text-amber-400/80 px-1 pt-1">âš ï¸ This amount requires Tier 2 Identity Verification (BVN).</p>
             )}
           </div>
 
@@ -478,7 +478,7 @@ export default function SwapPage() {
         </motion.div>
       </div>
 
-      {/* ── BVN Upgrade Modal ── */}
+      {/* â”€â”€ BVN Upgrade Modal â”€â”€ */}
       <AnimatePresence>
         {showBvnModal && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
@@ -496,7 +496,7 @@ export default function SwapPage() {
         )}
       </AnimatePresence>
 
-      {/* ── Cryptographic ZK Proof Modal ── */}
+      {/* â”€â”€ Cryptographic ZK Proof Modal â”€â”€ */}
       <AnimatePresence>
         {proving && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 p-4">

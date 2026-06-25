@@ -51,6 +51,21 @@ fn setup(env: &Env) -> Ctx {
 }
 
 #[test]
+#[should_panic(expected = "already initialized")]
+fn init_cannot_run_twice() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let admin = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = env.register_stellar_asset_contract_v2(token_admin).address();
+    let pool_id = env.register(ShieldedPool, ());
+    let pool = ShieldedPoolClient::new(&env, &pool_id);
+
+    pool.init(&admin, &token, &HIGH_THRESHOLD);
+    pool.init(&admin, &token, &HIGH_THRESHOLD);
+}
+
+#[test]
 fn full_confidential_swap_flow() {
     let env = Env::default();
     env.cost_estimate().budget().reset_unlimited();

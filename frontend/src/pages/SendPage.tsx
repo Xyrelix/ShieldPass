@@ -6,12 +6,7 @@ import { useSession } from "../lib/session";
 import { useSwapProof } from "../lib/useSwapProof";
 import { useShieldedTransfer } from "../lib/useShieldedTransfer";
 import ErrorNotice from "../components/ErrorNotice";
-
-const SUPPORTED_ASSETS = [
-  { code: "XLM", sac: import.meta.env.VITE_XLM_SAC as string | undefined },
-  { code: "USDC", sac: import.meta.env.VITE_USDC_SAC as string | undefined },
-  { code: "NGNC", sac: import.meta.env.VITE_NGNC_SAC as string | undefined },
-].filter((a): a is { code: string; sac: string } => !!a.sac);
+import { PUBLIC_ASSETS, assetByCode, formatUnits, parseUnits } from "../lib/assets";
 
 const isAddr = (s: string) => /^[GC][A-Z2-7]{55}$/.test(s);
 const isEmail = (s: string) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(s);
@@ -43,32 +38,34 @@ export default function SendPage() {
   const [source, setSource] = useState<Source>("available");
   const [recipient, setRecipient] = useState("");
   const [amount, setAmount] = useState("");
-  const [assetCode, setAssetCode] = useState(SUPPORTED_ASSETS[0]?.code ?? "XLM");
+  const [assetCode, setAssetCode] = useState<string>(PUBLIC_ASSETS[0]?.code ?? "XLM");
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState("");
   const [error, setError] = useState<unknown>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
   const isShielded = source === "shielded";
-  const poolAsset = session.notes[0]?.asset ?? "XLM";
+  const shieldedAssets = Array.from(new Set(session.notes.map((n) => n.asset || "XLM")));
+  const selectedAsset = assetByCode(assetCode);
   const short = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
 
   function switchSource(next: Source) {
     if (busy) return;
     setSource(next);
+    if (next === "shielded" && shieldedAssets.length > 0) setAssetCode(shieldedAssets[0]);
+    if (next === "available" && PUBLIC_ASSETS.length > 0) setAssetCode(PUBLIC_ASSETS[0].code);
     setError(null); setSuccess(null); setAmount("");
   }
 
   // Public send: move wallet funds via the token SAC (whole units -> stroops).
   async function sendAvailable(to: string) {
-    const asset = SUPPORTED_ASSETS.find((a) => a.code === assetCode);
+    const asset = PUBLIC_ASSETS.find((a) => a.code === assetCode);
     if (!asset) throw new Error("Asset not configured.");
-    const human = Number(amount);
-    if (!(human > 0)) throw new Error("Amount must be greater than zero.");
-    const stroops = BigInt(Math.round(human * 1e7));
-    await session.wallet!.invoke(asset.sac, "transfer", { from: session.address, to, amount: stroops });
-    setSuccess(`Sent ${human} ${asset.code} to ${short(to)}.`);
-    api.notify({ email: session.email, type: "SEND_PUBLIC", title: "Sent", amount: String(human), asset: asset.code }).catch(() => {});
+    const units = parseUnits(amount, asset.decimals);
+    if (units <= 0n) throw new Error("Amount must be greater than zero.");
+    await session.wallet!.invoke(asset.sac, "transfer", { from: session.address, to, amount: units });
+    setSuccess(`Sent ${formatUnits(units, asset.decimals, 4)} ${asset.code} to ${short(to)}.`);
+    api.notify({ email: session.email, type: "SEND_PUBLIC", title: "Sent", amount: units.toString(), asset: asset.code }).catch(() => {});
   }
 
   // Send from shielded balance. Routes by recipient:
@@ -76,27 +73,27 @@ export default function SendPage() {
   //  - external Stellar address (G…/C…)       -> unshield (exits the pool, becomes public crypto)
   async function sendShielded(to: string) {
     let amt: bigint;
-    try { amt = BigInt(amount.trim()); } catch { throw new Error("Enter a whole-number amount."); }
+    if (!selectedAsset) throw new Error("Asset not configured.");
+    try { amt = parseUnits(amount, selectedAsset.decimals); } catch { throw new Error("Enter a valid amount."); }
     if (amt <= 0n) throw new Error("Amount must be greater than zero.");
 
     if (isShieldPassUser(to)) {
       setStatus("Sending privately…");
-      const ok = await transfer.send(to, amt);
+      const ok = await transfer.send(to, amt, selectedAsset.code);
       if (!ok) throw new Error(transfer.error || "Private transfer failed.");
-      setSuccess(`Privately sent ${amt.toString()} ${poolAsset} to ${isShp(to) ? short(to) : to}. It stays shielded.`);
-      api.notify({ email: session.email, type: "SEND_SHIELDED", title: "Sent privately", amount: amt.toString(), asset: poolAsset }).catch(() => {});
+      setSuccess(`Privately sent ${formatUnits(amt, selectedAsset.decimals, 4)} ${selectedAsset.code} to ${isShp(to) ? short(to) : to}. It stays shielded.`);
+      api.notify({ email: session.email, type: "SEND_SHIELDED", title: "Sent privately", amount: amt.toString(), asset: selectedAsset.code }).catch(() => {});
       return;
     }
 
     // external wallet -> unshield
-    const escrowId = import.meta.env.VITE_ESCROW_CONTRACT_ID as string;
-    const note = session.notes.find((n) => BigInt(n.amount) >= amt);
-    if (!note) throw new Error("No single shielded note covers this amount.");
+    const note = session.notes.find((n) => n.asset === selectedAsset.code && BigInt(n.amount) >= amt);
+    if (!note) throw new Error(`No single shielded ${selectedAsset.code} note covers this amount.`);
     const pr = await swapProof.generate(note, amt, { accountNumber: 0n, salt: BigInt(randomField()) }, false);
     if (!pr) throw new Error(swapProof.error || "Proof generation failed.");
 
     setStatus("Approve the send on your device…");
-    await session.wallet!.invoke(escrowId, "unshield", {
+    await session.wallet!.invoke(selectedAsset.poolContractId, "unshield", {
       proof_a: buf(pr.proof.a), proof_b: buf(pr.proof.b), proof_c: buf(pr.proof.c),
       public_signals: pr.publicSignals.map(buf), recipient: to,
     });
@@ -109,7 +106,7 @@ export default function SendPage() {
       leafIndex: index, compliance: note.compliance,
     }] : [];
     session.set({ notes: [...session.notes.filter((n) => n !== note), ...changeNotes] });
-    setSuccess(`Sent ${amt.toString()} ${note.asset} to ${short(to)} (now public).`);
+    setSuccess(`Sent ${formatUnits(amt, selectedAsset.decimals, 4)} ${note.asset} to ${short(to)} (now public).`);
     api.notify({ email: session.email, type: "UNSHIELD", title: "Sent to wallet", amount: amt.toString(), asset: note.asset }).catch(() => {});
   }
 
@@ -168,15 +165,15 @@ export default function SendPage() {
         ) : null}
 
         <motion.div variants={fadeUp} className="bg-gradient-to-br from-blue-900/30 to-indigo-900/20 backdrop-blur-xl border border-blue-500/20 shadow-2xl rounded-3xl p-6 space-y-5 font-display text-blue-50">
-          {!isShielded ? (
-            <div>
-              <label className="text-white/40 text-xs font-mono tracking-wider uppercase">Asset</label>
-              <select value={assetCode} onChange={(e) => setAssetCode(e.target.value)}
-                className="mt-2 w-full bg-white/[0.03] border border-white/10 rounded-xl px-4 py-3 text-white outline-none focus:border-indigo-500/40 transition-colors">
-                {SUPPORTED_ASSETS.map((a) => <option key={a.code} value={a.code} className="bg-neutral-900">{a.code}</option>)}
-              </select>
-            </div>
-          ) : null}
+          <div>
+            <label className="text-white/40 text-xs font-mono tracking-wider uppercase">Asset</label>
+            <select value={assetCode} onChange={(e) => setAssetCode(e.target.value)}
+              className="mt-2 w-full bg-white/[0.03] border border-white/10 rounded-xl px-4 py-3 text-white outline-none focus:border-indigo-500/40 transition-colors">
+              {(isShielded ? shieldedAssets : PUBLIC_ASSETS.map((a) => a.code)).map((code) => (
+                <option key={code} value={code} className="bg-neutral-900">{code}</option>
+              ))}
+            </select>
+          </div>
 
           <div>
             <label className="text-white/40 text-xs font-mono tracking-wider uppercase">Recipient address</label>
@@ -185,7 +182,7 @@ export default function SendPage() {
           </div>
 
           <div>
-            <label className="text-white/40 text-xs font-mono tracking-wider uppercase">Amount ({isShielded ? poolAsset : assetCode})</label>
+            <label className="text-white/40 text-xs font-mono tracking-wider uppercase">Amount ({assetCode})</label>
             <input type="number" min="0" step={isShielded ? "1" : "any"} inputMode={isShielded ? "numeric" : "decimal"}
               value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0"
               className="mt-2 w-full bg-white/[0.03] border border-white/10 rounded-xl px-4 py-3 text-white text-lg outline-none focus:border-indigo-500/40 transition-colors" />
