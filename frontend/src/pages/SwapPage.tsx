@@ -1,4 +1,4 @@
-﻿import { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "motion/react";
 import { api } from "../lib/api";
@@ -7,7 +7,7 @@ import { useSwapProof } from "../lib/useSwapProof";
 import ErrorNotice from "../components/ErrorNotice";
 import { Buffer } from "buffer";
 import type { BankAccount, Quote } from "../types";
-import { SUPPORTED_ASSETS as SUPPORTED_SWAP_ASSETS, parseUnits } from "../lib/assets";
+import { SUPPORTED_ASSETS as SUPPORTED_SWAP_ASSETS, parseUnits, formatUnits } from "../lib/assets";
 import { addBank, loadBanks } from "../lib/bankVault";
 
 const buf = (u8: Uint8Array): Buffer => Buffer.from(u8);
@@ -273,6 +273,13 @@ export default function SwapPage() {
       setSwapSuccess(`Success! ${exec.message}`);
       setCryptoAmount("");
       setQuote(null);
+      api.notify({
+        email: session.email,
+        type: "WITHDRAW_FIAT",
+        title: "Withdrawn to Naira",
+        amount: formatUnits(swapAmt, token.decimals, 4),
+        asset: token.code,
+      }).catch(() => {});
     } catch (err) {
       setActionError(err);
     } finally {
@@ -325,13 +332,6 @@ export default function SwapPage() {
                 value={assetType} onChange={(e) => setAssetType(e.target.value)}
               >
                 {SUPPORTED_SWAP_ASSETS.map((a) => <option key={a.code} value={a.code} className="bg-zinc-900">{a.code} - {a.name}</option>)}
-              </select>
-            </div>
-          </div>
-
-          <div className="flex justify-center -my-3 relative z-10">
-            <div className="bg-[#0d1117] border border-white/10 rounded-full p-2 shadow-xl">
-              <svg className="w-5 h-5 text-white/40" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 14l-7 7m0 0l-7-7m7 7V3" /></svg>
             </div>
           </div>
 

@@ -7,6 +7,7 @@ import { noteCommitment, type Compliance } from "@shieldpass/sdk/dist/notes";
 import { api } from "../lib/api";
 import { useSession } from "../lib/session";
 import { useSwapProof } from "../lib/useSwapProof";
+import { useInsertProof } from "../lib/useInsertProof";
 import ShieldedBalance from "../components/ShieldedBalance";
 import ErrorNotice from "../components/ErrorNotice";
 import { SUPPORTED_ASSETS, assetByCode, formatUnits, parseUnits } from "../lib/assets";
@@ -32,6 +33,7 @@ export default function DepositPage() {
   const navigate = useNavigate();
   const session = useSession();
   const swapProof = useSwapProof(import.meta.env.VITE_API_URL as string);
+  const { insertProof } = useInsertProof();
 
   const [mode, setMode] = useState<Mode>("shield");
   const [assetCode, setAssetCode] = useState<string>(SUPPORTED_ASSETS[0]?.code ?? "XLM");
@@ -72,21 +74,9 @@ export default function DepositPage() {
       note_commitment: buf(fieldToBytes32(commitment)),
     });
 
-    // The deposit succeeded — the XLM is now escrowed in the pool.
-    // Persist the note in session IMMEDIATELY so the user's shielded balance
-    // is never lost, even if the on-chain tree insert call fails.
-    setStatus("Adding your note to the shielded tree…");
-    let leafIndex = 0;
-    try {
-      const { index } = await api.treeInsert(commitment.toString());
-      leafIndex = index;
-    } catch (insertErr: any) {
-      // Non-fatal: the backend tree insert failed (usually a relayer fee issue or
-      // root sync lag). The deposit is safely on-chain — save the note with index 0
-      // so the user can still see their shielded balance. They can retry the insert
-      // later via /tree/insert once the relayer has funds.
-      console.warn("[handleShield] tree insert failed (note saved at index 0):", insertErr?.message);
-    }
+    // Deposit confirmed on-chain. Run the merkle_insert proof in the browser:
+    // assign index → prove in Web Worker → submit to backend → confirm on-chain.
+    const { index: leafIndex } = await insertProof(commitment.toString(), setStatus);
 
     session.set({
       notes: [...session.notes, {
@@ -95,7 +85,7 @@ export default function DepositPage() {
       }],
     });
     setSuccess(`Shielded ${formatUnits(amt, selectedAsset.decimals, 4)} ${selectedAsset.code} into your private balance.`);
-    api.notify({ email: session.email, type: "SHIELD", title: "Shielded funds", amount: amt.toString(), asset: selectedAsset.code }).catch(() => {});
+    api.notify({ email: session.email, type: "SHIELD", title: "Shielded funds", amount: formatUnits(amt, selectedAsset.decimals, 4), asset: selectedAsset.code }).catch(() => {});
   }
 
   // ── Unshield: private pool -> wallet ──
@@ -118,14 +108,14 @@ export default function DepositPage() {
 
     setStatus("Updating your balance…");
     const changeCommitment = BigInt("0x" + Buffer.from(pr.publicSignals[1]).toString("hex")).toString();
-    const { index } = await api.treeInsert(changeCommitment);
+    const { index } = await insertProof(changeCommitment, setStatus);
     const changeNotes = BigInt(pr.changeNote.amount) > 0n ? [{
       amount: pr.changeNote.amount, asset: note.asset, randomness: pr.changeNote.randomness,
       leafIndex: index, compliance: note.compliance,
     }] : [];
     session.set({ notes: [...session.notes.filter((n) => n !== note), ...changeNotes] });
     setSuccess(`Unshielded ${formatUnits(amt, selectedAsset.decimals, 4)} ${note.asset} back to your wallet.`);
-    api.notify({ email: session.email, type: "UNSHIELD", title: "Unshielded to wallet", amount: amt.toString(), asset: note.asset }).catch(() => {});
+    api.notify({ email: session.email, type: "UNSHIELD", title: "Unshielded to wallet", amount: formatUnits(amt, selectedAsset.decimals, 4), asset: note.asset }).catch(() => {});
   }
 
   async function handleSubmit() {

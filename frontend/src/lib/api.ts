@@ -56,8 +56,15 @@ export const api = {
   swapHistory: (email: string) =>
     request<SwapRecord[]>(`/swap/history?email=${encodeURIComponent(email)}`),
 
-  treeInsert: (commitment: string) =>
-    request<{ index: number; root: string }>("/tree/insert", { method: "POST", body: JSON.stringify({ commitment }) }),
+  // ── Shielded tree: two-step client-side insert ──
+  // Step 1: reserve index + get circuit input
+  treeAssign: (commitment: string) =>
+    request<{ index: number; circuitInput: Record<string, unknown> }>("/tree/assign", { method: "POST", body: JSON.stringify({ commitment }) }),
+  // Step 2: send browser-generated proof, backend submits on-chain
+  treeConfirm: (index: number, proof: {
+    proof_a: number[]; proof_b: number[]; proof_c: number[]; public_signals: number[][];
+  }) =>
+    request<{ txHash?: string }>("/tree/confirm", { method: "POST", body: JSON.stringify({ index, ...proof }) }),
 
   lookupShielded: (email: string) =>
     request<{ owner: string; encPub: string; address: string | null }>(`/notes/identity/${encodeURIComponent(email)}`),

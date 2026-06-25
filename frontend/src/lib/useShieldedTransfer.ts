@@ -19,6 +19,7 @@ import {
 import { api } from "./api";
 import { useSession, type ShieldedNote } from "./session";
 import { assetByCode } from "./assets";
+import { useInsertProof } from "./useInsertProof";
 
 const buf = (u8: Uint8Array): Buffer => Buffer.from(u8);
 const hex = (u8: Uint8Array) => Array.from(u8).map((b) => b.toString(16).padStart(2, "0")).join("");
@@ -29,6 +30,7 @@ export type TransferStatus = "idle" | "resolving" | "fetching-path" | "loading-c
 
 export function useShieldedTransfer(apiBaseUrl: string) {
     const session = useSession();
+    const { insertProof } = useInsertProof();
     const [status, setStatus] = useState<TransferStatus>("idle");
     const [error, setError] = useState<string | null>(null);
 
@@ -94,9 +96,12 @@ export function useShieldedTransfer(apiBaseUrl: string) {
                 public_signals: bundle.publicSignals.map(buf),
             });
 
-            // insert both output notes into the tree (trustlessly, via the indexer)
-            await api.treeInsert(outRecipient);
-            const { index: changeIndex } = await api.treeInsert(outChange);
+            // Insert both output notes into the tree using client-side proving
+            // (sequential to avoid racing the index counter).
+            setStatus("submitting");
+            const { index: recipientIndex } = await insertProof(outRecipient, (s) => setStatus(s as TransferStatus));
+            const { index: changeIndex } = await insertProof(outChange, (s) => setStatus(s as TransferStatus));
+            void recipientIndex;
 
             // deliver the encrypted note blob to the recipient
             const plaintext = new TextEncoder().encode(JSON.stringify({

@@ -1,4 +1,4 @@
-﻿import { Router } from 'express';
+import { Router } from 'express';
 import { Networks, Keypair } from '@stellar/stellar-sdk';
 import { ShieldedPoolClient } from '@shieldpass/sdk';
 import { prisma } from '../db';
@@ -188,15 +188,15 @@ router.post('/execute', async (req, res) => {
   });
   await notify(email, 'WITHDRAW_FIAT', `NGN ${quote.nairaAmount.toLocaleString()} sent to ${bankName}`, { amount: String(quote.nairaAmount), asset: 'NGN' });
 
-  // 5. Insert the change note (already queued on-chain by confidential_swap) into the
-  // tree so the user can spend it later. Returns the new leaf index for the client.
+  // 5. Assign the change note (already queued on-chain by confidential_swap) a leaf
+  // index in the tree. The browser will run the merkle_insert proof later via useInsertProof.
   let changeLeafIndex: number | null = null;
   if (changeCommitment) {
     try {
-      const { index } = await treeService.appendAndInsert(BigInt(changeCommitment));
+      const { index } = await treeService.assignInsert(BigInt(changeCommitment));
       changeLeafIndex = index;
     } catch (e) {
-      console.error('[swap/execute] change-note insert failed:', e);
+      console.error('[swap/execute] change-note assign failed:', e);
     }
   }
 

@@ -8,6 +8,7 @@ import { useShieldedTransfer } from "../lib/useShieldedTransfer";
 import ErrorNotice from "../components/ErrorNotice";
 import { PUBLIC_ASSETS, assetByCode, formatUnits, parseUnits } from "../lib/assets";
 import { addContact, loadContacts, removeContact, type SavedRecipient } from "../lib/bankVault";
+import { useInsertProof } from "../lib/useInsertProof";
 
 const isAddr = (value: string) => /^[GC][A-Z2-7]{55}$/.test(value);
 const isEmail = (value: string) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(value);
@@ -47,6 +48,7 @@ export default function SendPage() {
   const session = useSession();
   const swapProof = useSwapProof(import.meta.env.VITE_API_URL as string);
   const transfer = useShieldedTransfer(import.meta.env.VITE_API_URL as string);
+  const { insertProof } = useInsertProof();
 
   const [source, setSource] = useState<Source>("available");
   const [recipient, setRecipient] = useState("");
@@ -167,7 +169,7 @@ export default function SendPage() {
     if (units <= 0n) throw new Error("Amount must be greater than zero.");
     await session.wallet!.invoke(asset.sac, "transfer", { from: session.address, to, amount: units });
     setSuccess(`Sent ${formatUnits(units, asset.decimals, 4)} ${asset.code} to ${short(to)}.`);
-    api.notify({ email: session.email, type: "SEND_PUBLIC", title: "Sent", amount: units.toString(), asset: asset.code }).catch(() => {});
+    api.notify({ email: session.email, type: "SEND_PUBLIC", title: "Sent", amount: formatUnits(units, asset.decimals, 4), asset: asset.code }).catch(() => {});
   }
 
   async function sendShielded(to: string) {
@@ -188,7 +190,7 @@ export default function SendPage() {
       if (!ok) throw new Error(transfer.error || "Private transfer failed.");
 
       setSuccess(`Privately sent ${formatUnits(amt, selectedAsset.decimals, 4)} ${selectedAsset.code} to ${isShp(to) ? short(to) : to}. It stays shielded.`);
-      api.notify({ email: session.email, type: "SEND_SHIELDED", title: "Sent privately", amount: amt.toString(), asset: selectedAsset.code }).catch(() => {});
+      api.notify({ email: session.email, type: "SEND_SHIELDED", title: "Sent privately", amount: formatUnits(amt, selectedAsset.decimals, 4), asset: selectedAsset.code }).catch(() => {});
       return;
     }
 
@@ -209,7 +211,7 @@ export default function SendPage() {
 
     setStatus("Updating your balance...");
     const changeCommitment = BigInt("0x" + Buffer.from(pr.publicSignals[1]).toString("hex")).toString();
-    const { index } = await api.treeInsert(changeCommitment);
+    const { index } = await insertProof(changeCommitment, setStatus);
     const changeNotes = BigInt(pr.changeNote.amount) > 0n ? [{
       amount: pr.changeNote.amount,
       asset: note.asset,
@@ -220,7 +222,7 @@ export default function SendPage() {
 
     session.set({ notes: [...session.notes.filter((n) => n !== note), ...changeNotes] });
     setSuccess(`Sent ${formatUnits(amt, selectedAsset.decimals, 4)} ${note.asset} to ${short(to)} (now public).`);
-    api.notify({ email: session.email, type: "UNSHIELD", title: "Sent to wallet", amount: amt.toString(), asset: note.asset }).catch(() => {});
+    api.notify({ email: session.email, type: "UNSHIELD", title: "Sent to wallet", amount: formatUnits(amt, selectedAsset.decimals, 4), asset: note.asset }).catch(() => {});
   }
 
   async function handleSend() {

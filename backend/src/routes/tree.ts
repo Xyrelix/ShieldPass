@@ -23,21 +23,62 @@ router.get('/path/:index', async (req, res) => {
     }
 });
 
-// POST /tree/insert — advance the tree for a commitment the user just queued on-chain
-// (via deposit()). Generates a merkle_insert proof + submits insert(); returns the leaf index.
-// Safe: the contract rejects a leaf that isn't genuinely pending, so this can't forge notes.
-router.post('/insert', async (req, res) => {
+// ── Client-side proving: two-step insert ──────────────────────────────────────
+
+/**
+ * POST /tree/assign
+ * Step 1: register a commitment and return the circuit input the browser needs to
+ * generate the merkle_insert proof. The leaf is written as "pending" immediately
+ * so the index is reserved, even though the proof hasn't been submitted yet.
+ *
+ * Body: { commitment: string }   (decimal field element)
+ * Returns: { index: number, circuitInput: { old_root, new_root, leaf, index, siblings } }
+ */
+router.post('/assign', async (req, res) => {
     const { commitment } = req.body || {};
     if (!commitment || !/^\d+$/.test(String(commitment))) {
         return res.status(400).json({ error: 'commitment (decimal field element) is required' });
     }
     try {
-        const { index, root, txHash } = await treeService.appendAndInsert(BigInt(commitment));
-        console.log(`[tree/insert] commitment=${commitment} index=${index} root=${root} tx=${txHash ?? 'none'}`);
-        res.json({ index, root });
+        const result = await treeService.assignInsert(BigInt(commitment));
+        res.json(result);
     } catch (e: any) {
-        console.error('[tree/insert] FAILED commitment=%s error=%s', commitment, e?.message);
-        res.status(500).json({ error: e?.message || 'insert failed' });
+        console.error('[tree/assign] FAILED commitment=%s error=%s', commitment, e?.message);
+        res.status(500).json({ error: e?.message || 'assign failed' });
+    }
+});
+
+/**
+ * POST /tree/confirm
+ * Step 2: receive the browser-generated proof and submit it on-chain. Marks the
+ * leaf as "confirmed" once the transaction is accepted.
+ *
+ * Body: {
+ *   index: number,
+ *   proof_a: number[],   (Uint8Array serialised as a plain number array by JSON)
+ *   proof_b: number[],
+ *   proof_c: number[],
+ *   public_signals: number[][]
+ * }
+ * Returns: { txHash?: string }
+ */
+router.post('/confirm', async (req, res) => {
+    const { index, proof_a, proof_b, proof_c, public_signals } = req.body || {};
+    if (typeof index !== 'number' || !proof_a || !proof_b || !proof_c || !public_signals) {
+        return res.status(400).json({ error: 'index, proof_a, proof_b, proof_c and public_signals are required' });
+    }
+    try {
+        const proof = {
+            a: Uint8Array.from(proof_a),
+            b: Uint8Array.from(proof_b),
+            c: Uint8Array.from(proof_c),
+        };
+        const signals: Uint8Array[] = (public_signals as number[][]).map((s) => Uint8Array.from(s));
+        const result = await treeService.confirmInsert(index, proof, signals);
+        res.json(result);
+    } catch (e: any) {
+        console.error('[tree/confirm] FAILED index=%s error=%s', index, e?.message);
+        res.status(500).json({ error: e?.message || 'confirm failed' });
     }
 });
 
@@ -49,6 +90,17 @@ router.get('/index/:commitment', async (req, res) => {
         res.json({ index });
     } catch (e: any) {
         res.status(500).json({ error: e?.message || 'tree index lookup failed' });
+    }
+});
+
+// GET /tree/pending-count — monitoring: how many leaves are currently awaiting proof submission.
+router.get('/pending-count', async (_req, res) => {
+    try {
+        const { prisma } = await import('../db');
+        const count = await prisma.treeLeaf.count({ where: { status: 'pending' } });
+        res.json({ count });
+    } catch (e: any) {
+        res.status(500).json({ error: e?.message });
     }
 });
 

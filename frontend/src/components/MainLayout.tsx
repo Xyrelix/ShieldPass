@@ -37,7 +37,7 @@ export default function MainLayout({
   return (
     <div className="min-h-screen flex flex-col relative font-sans">
       {/* Renders the background gradient requested by the user */}
-      {["/withdraw", "/send", "/shield", "/dashboard"].includes(currentPath) ? (
+      {["/withdraw", "/send", "/shield", "/dashboard", "/activity"].includes(currentPath) ? (
         <div className="fixed inset-0 -z-20">
           <DarkVeil speed={0.4} warpAmount={0.3} noiseIntensity={0.04} scanlineIntensity={0.2} scanlineFrequency={100} />
         </div>
