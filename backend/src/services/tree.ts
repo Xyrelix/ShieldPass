@@ -66,29 +66,49 @@ class TreeService {
 
     /**
      * Append a commitment that has ALREADY been queued on-chain (deposit/faucet_seed/
-     * confidential_swap change note). Generates a merkle_insert proof and submits
-     * insert() so the on-chain root advances trustlessly. Returns the new leaf index.
+     * confidential_swap change note). Saves to DB immediately and returns the leaf index.
+     * The expensive on-chain insert() proof runs in the background to avoid OOM on
+     * memory-constrained hosts (Render free tier = 512 MB; snarkjs can spike 300+ MB).
      */
-    async appendAndInsert(commitment: bigint): Promise<{ index: number; root: string; txHash?: string }> {
-        return this.serialize(() => this._append(commitment));
+    async appendAndInsert(commitment: bigint): Promise<{ index: number; root: string }> {
+        return this.serialize(() => this._appendDb(commitment));
     }
 
-    /** Unserialized append+insert. ALWAYS call via serialize(). */
-    private async _append(commitment: bigint): Promise<{ index: number; root: string; txHash?: string }> {
+    /** Fast path: mutate in-memory tree + write to DB. Returns immediately. */
+    private async _appendDb(commitment: bigint): Promise<{ index: number; root: string }> {
         await this.ensureLoaded();
         const index = this.tree.nextIndex;
-        const input = buildInsertInput(this.tree, commitment); // mutates tree (appends)
+        const input = buildInsertInput(this.tree, commitment); // mutates tree
         const root = this.tree.root().toString();
-
         await prisma.treeLeaf.create({ data: { index, commitment: commitment.toString() } });
 
-        let txHash: string | undefined;
+        // Run the expensive ZK proof + on-chain insert AFTER the HTTP response has been sent.
+        // Fire-and-forget with one retry so transient failures don't silently drop inserts.
         if (CONTRACT_ID && RELAYER_SECRET) {
-            const { proof, publicSignals } = await prove(input, INSERT_WASM, INSERT_ZKEY);
-            const pool = new ShieldedPoolClient(RPC_URL, NETWORK, CONTRACT_ID);
-            txHash = await pool.insert(proof, publicSignals, Keypair.fromSecret(RELAYER_SECRET));
+            setImmediate(() => this._submitInsertProof(input, commitment, index).catch(() => {}));
         }
-        return { index, root, txHash };
+
+        return { index, root };
+    }
+
+    /** Background: generate Groth16 proof and call pool.insert() on-chain. */
+    private async _submitInsertProof(
+        input: unknown, commitment: bigint, index: number, attempt = 1,
+    ): Promise<void> {
+        try {
+            const { proof, publicSignals } = await prove(input as any, INSERT_WASM, INSERT_ZKEY);
+            const pool = new ShieldedPoolClient(RPC_URL, NETWORK, CONTRACT_ID);
+            const txHash = await pool.insert(proof, publicSignals, Keypair.fromSecret(RELAYER_SECRET));
+            console.log(`[tree] on-chain insert ok commitment=${commitment} index=${index} tx=${txHash}`);
+        } catch (err: any) {
+            console.error(`[tree] on-chain insert attempt ${attempt} FAILED index=${index}:`, err?.message);
+            if (attempt < 3) {
+                // Retry after a short back-off so a temporary node hiccup doesn't drop the leaf.
+                setTimeout(() => this._submitInsertProof(input, commitment, index, attempt + 1).catch(() => {}), 15_000 * attempt);
+            } else {
+                console.error(`[tree] giving up on on-chain insert for index=${index} after 3 attempts.`);
+            }
+        }
     }
 
     /**

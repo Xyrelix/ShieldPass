@@ -32,9 +32,11 @@ router.post('/insert', async (req, res) => {
         return res.status(400).json({ error: 'commitment (decimal field element) is required' });
     }
     try {
-        const { index, root } = await treeService.appendAndInsert(BigInt(commitment));
+        const { index, root, txHash } = await treeService.appendAndInsert(BigInt(commitment));
+        console.log(`[tree/insert] commitment=${commitment} index=${index} root=${root} tx=${txHash ?? 'none'}`);
         res.json({ index, root });
     } catch (e: any) {
+        console.error('[tree/insert] FAILED commitment=%s error=%s', commitment, e?.message);
         res.status(500).json({ error: e?.message || 'insert failed' });
     }
 });
