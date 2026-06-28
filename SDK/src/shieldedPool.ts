@@ -48,7 +48,24 @@ export class ShieldedPoolClient {
 
     /** Admin queues a note commitment funded from the pool (no public transfer). */
     async faucetSeed(noteCommitment: Uint8Array, admin: Keypair): Promise<string> {
-        return this.invokeKeypair(admin, 'faucet_seed', bytesScVal(noteCommitment));
+        const hash = await this.invokeKeypair(admin, 'faucet_seed', bytesScVal(noteCommitment));
+        // Wait for the tx to be committed before returning. The insert simulation
+        // checks Pending(commitment) — if faucetSeed hasn't landed yet, insert panics.
+        await this.waitForLanding(hash);
+        return hash;
+    }
+
+    /** Poll until a tx hash is confirmed on-chain (or throw on failure/timeout). */
+    async waitForLanding(hash: string, timeoutMs = 30_000): Promise<void> {
+        const deadline = Date.now() + timeoutMs;
+        while (Date.now() < deadline) {
+            const r = await this.server.getTransaction(hash);
+            if (r.status === rpc.Api.GetTransactionStatus.SUCCESS) return;
+            if (r.status === rpc.Api.GetTransactionStatus.FAILED)
+                throw new Error(`[ShieldedPoolClient] tx ${hash} failed on-chain`);
+            await new Promise(resolve => setTimeout(resolve, 1500));
+        }
+        throw new Error(`[ShieldedPoolClient] tx ${hash} not confirmed within ${timeoutMs}ms`);
     }
 
     /** Trustless tree append: verifies a merkle_insert proof on-chain. */
