@@ -37,6 +37,8 @@ services:
         value: https://soroban-testnet.stellar.org
       - key: CHANNELS_URL
         value: https://channels.openzeppelin.com/testnet
+      - key: XLM_SAC_ADDRESS
+        value: CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC
       # Secrets — set these in the Render dashboard (sync: false keeps them out of the repo)
       - key: NEON_CONNECTION_STRING
         sync: false

@@ -2,12 +2,16 @@ import { Networks, Keypair } from '@stellar/stellar-sdk';
 import {
     IncrementalMerkleTree, buildInsertInput, ShieldedPoolClient, fieldToBytes32,
 } from '@shieldpass/sdk';
+import { StellarContractClient } from '@shieldpass/sdk/dist/stellar';
 import { prisma } from '../db';
 
 const CONTRACT_ID = process.env.STELLAR_CONTRACT_ID || '';
 const RELAYER_SECRET = process.env.STELLAR_RELAYER_SECRET || '';
 const RPC_URL = process.env.STELLAR_RPC_URL || 'https://soroban-testnet.stellar.org';
 const NETWORK = process.env.STELLAR_NETWORK_PASSPHRASE || Networks.TESTNET;
+// XLM SAC address — needed to fund the pool contract when issuing faucet notes.
+const XLM_SAC_ADDRESS = process.env.XLM_SAC_ADDRESS || '';
+const FAUCET_NOTE_AMOUNT = BigInt(process.env.FAUCET_NOTE_AMOUNT || '5000000000'); // 500 XLM default
 
 const DEPTH = 20;
 
@@ -162,11 +166,26 @@ class TreeService {
      * Authorize a faucet note on-chain (relayer-signed faucet_seed call), then
      * reserve a tree index and return the circuit input the browser needs to prove.
      * prove() never runs server-side — the browser does it via the normal confirm flow.
+     *
+     * faucet_seed registers the commitment without moving any XLM into the pool.
+     * We immediately follow up with a SAC transfer of the faucet amount from the
+     * relayer into the pool contract so that the user can actually unshield/spend it.
      */
     async faucetAssign(commitment: bigint): Promise<{ index: number; circuitInput: Record<string, unknown> }> {
         if (CONTRACT_ID && RELAYER_SECRET) {
             const pool = new ShieldedPoolClient(RPC_URL, NETWORK, CONTRACT_ID);
-            await pool.faucetSeed(fieldToBytes32(commitment), Keypair.fromSecret(RELAYER_SECRET));
+            const relayer = Keypair.fromSecret(RELAYER_SECRET);
+            await pool.faucetSeed(fieldToBytes32(commitment), relayer);
+
+            // Fund the pool so the faucet note is actually redeemable.
+            if (XLM_SAC_ADDRESS) {
+                const stellar = new StellarContractClient(RPC_URL, NETWORK, XLM_SAC_ADDRESS);
+                const fundHash = await stellar.fundWallet(XLM_SAC_ADDRESS, CONTRACT_ID, FAUCET_NOTE_AMOUNT, relayer);
+                await pool.waitForLanding(fundHash);
+                console.log(`[tree/faucet] funded pool ${FAUCET_NOTE_AMOUNT} stroops tx=${fundHash}`);
+            } else {
+                console.warn('[tree/faucet] XLM_SAC_ADDRESS not set — pool not funded, unshield will fail');
+            }
         }
         return this.assignInsert(commitment);
     }
