@@ -120,6 +120,7 @@ model Notification {
   body      String?
   amount    String?
   asset     String?
+  txHash    String?  // Stellar transaction hash (if the action had an on-chain tx)
   read      Boolean  @default(false)
   createdAt DateTime @default(now())
 

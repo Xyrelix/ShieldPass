@@ -5,6 +5,7 @@ import { GradientBackground } from "./ui/paper-design-shader-background";
 import { DarkBackground } from "./ui/background-snippets";
 import { useSession } from "../lib/session";
 import { useNoteScanner } from "../lib/useNoteScanner";
+import { useIncomingTransactions } from "../lib/useIncomingTransactions";
 import { api } from "../lib/api";
 import NotificationBell from "./NotificationBell";
 
@@ -25,12 +26,15 @@ export default function MainLayout({
   const isActive = (path: string) => currentPath === path;
   const session = useSession();
 
-  // Background scan for incoming private payments; log a notification per new note.
+  // Background scan for incoming private (shielded) payments.
   useNoteScanner(import.meta.env.VITE_API_URL as string, (amount, asset) => {
     if (session.email) {
       api.notify({ email: session.email, type: "RECEIVE_SHIELDED", title: "Private payment received", amount, asset }).catch(() => {});
     }
   });
+
+  // Background poll for incoming public SAC transfers (XLM, USDC, NGNC).
+  useIncomingTransactions();
 
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 

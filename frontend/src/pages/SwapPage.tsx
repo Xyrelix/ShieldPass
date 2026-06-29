@@ -63,7 +63,7 @@ export default function SwapPage() {
   const [quote, setQuote] = useState<Quote | null>(null);
   const [quoteLoading, setQuoteLoading] = useState(false);
   const [actionError, setActionError] = useState<unknown>(null);
-  const [swapSuccess, setSwapSuccess] = useState<string | null>(null);
+  const [swapSuccess, setSwapSuccess] = useState<{ message: string; txHash?: string } | null>(null);
   const [swapping, setSwapping] = useState(false);
 
   // Bank Account State
@@ -276,7 +276,7 @@ export default function SwapPage() {
         session.set({ notes: [...session.notes.filter((n) => n !== currentNote), ...changeNotes] });
       }
 
-      setSwapSuccess(`Success! ${exec.message}`);
+      setSwapSuccess({ message: `Success! ${exec.message}`, txHash: swapRes.hash });
       setCryptoAmount("");
       setQuote(null);
       api.notify({
@@ -285,6 +285,7 @@ export default function SwapPage() {
         title: "Withdrawn to Naira",
         amount: formatUnits(swapAmt, token.decimals, 4),
         asset: token.code,
+        txHash: swapRes.hash,
       }).catch(() => {});
     } catch (err) {
       setActionError(err);
@@ -316,7 +317,14 @@ export default function SwapPage() {
 
         {swapSuccess ? (
           <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="border border-green-500/20 bg-green-500/[0.02] p-6 rounded-2xl mb-6 text-center">
-            <p className="text-green-400 font-medium">{swapSuccess}</p>
+            <p className="text-green-400 font-medium">
+              {swapSuccess.message}
+              {swapSuccess.txHash && (
+                <a href={`https://stellar.expert/explorer/testnet/tx/${swapSuccess.txHash}`} target="_blank" rel="noopener noreferrer" className="ml-2 inline-flex items-center gap-0.5 text-green-400/60 hover:text-green-300 transition-colors text-xs font-mono" title="View on Stellar Explorer">
+                  ↗
+                </a>
+              )}
+            </p>
             <button onClick={() => navigate("/dashboard")} className="mt-4 text-xs bg-white/5 hover:bg-white/10 px-4 py-2 rounded-lg transition-all font-mono">View Dashboard</button>
           </motion.div>
         ) : null}

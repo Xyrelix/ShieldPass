@@ -42,7 +42,7 @@ export default function DepositPage() {
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState("");
   const [error, setError] = useState<unknown>(null);
-  const [success, setSuccess] = useState<string | null>(null);
+  const [success, setSuccess] = useState<{ message: string; txHash?: string } | null>(null);
 
   const shieldedAssets = Array.from(new Set(session.notes.map((n) => n.asset || "XLM")));
   const selectedAsset = assetByCode(assetCode) ?? SUPPORTED_ASSETS[0];
@@ -78,7 +78,7 @@ export default function DepositPage() {
     const commitment = noteCommitment(amt, session.identity.owner, BigInt(randomness), compliance);
 
     setStatus("Approve the shielding on your device…");
-    await session.wallet!.invoke(selectedAsset.poolContractId, "deposit", {
+    const depositRes = await session.wallet!.invoke(selectedAsset.poolContractId, "deposit", {
       user: session.address,
       amount: amt,
       note_commitment: buf(fieldToBytes32(commitment)),
@@ -94,8 +94,8 @@ export default function DepositPage() {
         compliance: { hardware_attested: "1", bvn_verified: session.bvnVerified ? "1" : "0", good_standing: "1" },
       }],
     });
-    setSuccess(`Shielded ${formatUnits(amt, selectedAsset.decimals, 4)} ${selectedAsset.code} into your private balance.`);
-    api.notify({ email: session.email, type: "SHIELD", title: "Shielded funds", amount: formatUnits(amt, selectedAsset.decimals, 4), asset: selectedAsset.code }).catch(() => {});
+    setSuccess({ message: `Shielded ${formatUnits(amt, selectedAsset.decimals, 4)} ${selectedAsset.code} into your private balance.`, txHash: depositRes.hash });
+    api.notify({ email: session.email, type: "SHIELD", title: "Shielded funds", amount: formatUnits(amt, selectedAsset.decimals, 4), asset: selectedAsset.code, txHash: depositRes.hash }).catch(() => {});
   }
 
   // ── Unshield: private pool -> wallet ──
@@ -108,7 +108,7 @@ export default function DepositPage() {
     if (!pr) throw new Error(swapProof.error || "Proof generation failed.");
 
     setStatus("Approve the unshield on your device…");
-    await session.wallet!.invoke(selectedAsset.poolContractId, "unshield", {
+    const unshieldRes = await session.wallet!.invoke(selectedAsset.poolContractId, "unshield", {
       proof_a: buf(pr.proof.a),
       proof_b: buf(pr.proof.b),
       proof_c: buf(pr.proof.c),
@@ -124,8 +124,8 @@ export default function DepositPage() {
       leafIndex: index, compliance: note.compliance,
     }] : [];
     session.set({ notes: [...session.notes.filter((n) => n !== note), ...changeNotes] });
-    setSuccess(`Unshielded ${formatUnits(amt, selectedAsset.decimals, 4)} ${note.asset} back to your wallet.`);
-    api.notify({ email: session.email, type: "UNSHIELD", title: "Unshielded to wallet", amount: formatUnits(amt, selectedAsset.decimals, 4), asset: note.asset }).catch(() => {});
+    setSuccess({ message: `Unshielded ${formatUnits(amt, selectedAsset.decimals, 4)} ${note.asset} back to your wallet.`, txHash: unshieldRes.hash });
+    api.notify({ email: session.email, type: "UNSHIELD", title: "Unshielded to wallet", amount: formatUnits(amt, selectedAsset.decimals, 4), asset: note.asset, txHash: unshieldRes.hash }).catch(() => {});
   }
 
   async function handleSubmit() {
@@ -190,8 +190,13 @@ export default function DepositPage() {
         {success ? (
           <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
             className="border border-emerald-500/20 bg-emerald-500/[0.03] p-4 rounded-2xl mb-6 text-emerald-300 text-sm">
-            {success}
-            <button onClick={() => navigate(isShield ? "/withdraw" : "/dashboard")} className="ml-2 underline underline-offset-2 text-emerald-200">
+            <span>{success.message}</span>
+            {success.txHash && (
+              <a href={`https://stellar.expert/explorer/testnet/tx/${success.txHash}`} target="_blank" rel="noopener noreferrer" className="ml-2 inline-flex items-center gap-0.5 text-emerald-400/70 hover:text-emerald-300 transition-colors text-xs font-mono" title="View on Stellar Explorer">
+                ↗
+              </a>
+            )}
+            <button onClick={() => navigate(isShield ? "/withdraw" : "/dashboard")} className="ml-3 underline underline-offset-2 text-emerald-200">
               {isShield ? "Withdraw now →" : "View balance →"}
             </button>
           </motion.div>

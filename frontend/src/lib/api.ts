@@ -81,7 +81,7 @@ export const api = {
   treeIndexOf: (commitment: string) =>
     request<{ index: number }>(`/tree/index/${commitment}`),
 
-  notify: (input: { email: string; type: string; title: string; amount?: string; asset?: string; body?: string }) =>
+  notify: (input: { email: string; type: string; title: string; amount?: string; asset?: string; body?: string; txHash?: string }) =>
     request<{ ok: boolean }>("/notifications", { method: "POST", body: JSON.stringify(input) }),
   listNotifications: (email: string) =>
     request<{ items: NotificationItem[]; unread: number }>(`/notifications?email=${encodeURIComponent(email)}`),
@@ -91,5 +91,5 @@ export const api = {
 
 export interface NotificationItem {
   id: string; type: string; title: string; body?: string;
-  amount?: string; asset?: string; read: boolean; createdAt: string;
+  amount?: string; asset?: string; txHash?: string; read: boolean; createdAt: string;
 }

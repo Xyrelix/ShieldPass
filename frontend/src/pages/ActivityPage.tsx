@@ -10,6 +10,7 @@ const META: Record<string, { label: string; color: string }> = {
   SEND_PUBLIC: { label: "Sent", color: "text-white/70" },
   SEND_SHIELDED: { label: "Sent privately", color: "text-indigo-300" },
   RECEIVE_SHIELDED: { label: "Private payment received", color: "text-emerald-300" },
+  RECEIVE_PUBLIC: { label: "Received", color: "text-emerald-300" },
   PAYOUT_SETTLED: { label: "Payout settled", color: "text-emerald-300" },
 };
 
@@ -35,7 +36,14 @@ export default function ActivityPage() {
               return (
                 <div key={n.id} className={`flex items-center justify-between rounded-xl border p-4 ${n.read ? "border-white/5 bg-white/[0.01]" : "border-indigo-500/20 bg-indigo-500/[0.04]"}`}>
                   <div>
-                    <div className={`text-sm font-medium ${m.color}`}>{n.title}</div>
+                    <div className={`text-sm font-medium flex items-center gap-1.5 ${m.color}`}>
+                      {n.title}
+                      {n.txHash && (
+                        <a href={`https://stellar.expert/explorer/testnet/tx/${n.txHash}`} target="_blank" rel="noopener noreferrer" className="text-white/30 hover:text-white/70 transition-colors text-xs font-mono" title="View on Stellar Explorer">
+                          ↗
+                        </a>
+                      )}
+                    </div>
                     <div className="text-white/30 text-xs mt-0.5">{new Date(n.createdAt).toLocaleString()}</div>
                   </div>
                   {n.amount && (

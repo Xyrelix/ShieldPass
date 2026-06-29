@@ -45,7 +45,7 @@ export function useShieldedTransfer(apiBaseUrl: string) {
         return { owner: BigInt(id.owner), encPub: fromHex(id.encPub) };
     }
 
-    const send = async (recipient: string, sendAmount: bigint, assetCode?: string): Promise<boolean> => {
+    const send = async (recipient: string, sendAmount: bigint, assetCode?: string): Promise<string | null> => {
         setError(null);
         try {
             if (!session.identity) throw new Error("Shielded key locked — unlock it to send privately.");
@@ -91,7 +91,7 @@ export function useShieldedTransfer(apiBaseUrl: string) {
             const outChange = fieldDec(bundle.publicSignals[2]);
 
             setStatus("submitting");
-            await session.wallet.invoke(asset.poolContractId, "shielded_transfer", {
+            const transferRes = await session.wallet.invoke(asset.poolContractId, "shielded_transfer", {
                 proof_a: buf(bundle.proof.a), proof_b: buf(bundle.proof.b), proof_c: buf(bundle.proof.c),
                 public_signals: bundle.publicSignals.map(buf),
             });
@@ -125,12 +125,12 @@ export function useShieldedTransfer(apiBaseUrl: string) {
             void ownerOf;
 
             setStatus("done");
-            return true;
+            return transferRes.hash;
         } catch (err: any) {
             console.error("[useShieldedTransfer]", err);
             setError(err?.message || "transfer failed");
             setStatus("error");
-            return false;
+            return null;
         }
     };
 

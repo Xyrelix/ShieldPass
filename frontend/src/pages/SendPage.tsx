@@ -58,7 +58,7 @@ export default function SendPage() {
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState("");
   const [error, setError] = useState<unknown>(null);
-  const [success, setSuccess] = useState<string | null>(null);
+  const [success, setSuccess] = useState<{ message: string; txHash?: string } | null>(null);
   const [contacts, setContacts] = useState<SavedRecipient[]>([]);
   const [contactsLoading, setContactsLoading] = useState(false);
   const [contactsError, setContactsError] = useState<unknown>(null);
@@ -179,9 +179,9 @@ export default function SendPage() {
     if (units <= 0n) throw new Error("Amount must be greater than zero.");
     // Use transferToken instead of invoke — native SACs (XLM etc.) have no uploadable
     // Wasm, so contract.Client.from() crashes. transferToken builds XDR directly.
-    await session.wallet!.transferToken(asset.sac, to, units);
-    setSuccess(`Sent ${formatUnits(units, asset.decimals, 4)} ${asset.code} to ${short(to)}.`);
-    api.notify({ email: session.email, type: "SEND_PUBLIC", title: "Sent", amount: formatUnits(units, asset.decimals, 4), asset: asset.code }).catch(() => {});
+    const sendRes = await session.wallet!.transferToken(asset.sac, to, units);
+    setSuccess({ message: `Sent ${formatUnits(units, asset.decimals, 4)} ${asset.code} to ${short(to)}.`, txHash: sendRes.hash });
+    api.notify({ email: session.email, type: "SEND_PUBLIC", title: "Sent", amount: formatUnits(units, asset.decimals, 4), asset: asset.code, txHash: sendRes.hash }).catch(() => {});
   }
 
   async function sendShielded(to: string) {
@@ -198,11 +198,11 @@ export default function SendPage() {
 
     if (isShieldPassUser(to)) {
       setStatus("Sending privately...");
-      const ok = await transfer.send(to, amt, selectedAsset.code);
-      if (!ok) throw new Error(transfer.error || "Private transfer failed.");
+      const txHash = await transfer.send(to, amt, selectedAsset.code);
+      if (!txHash) throw new Error(transfer.error || "Private transfer failed.");
 
-      setSuccess(`Privately sent ${formatUnits(amt, selectedAsset.decimals, 4)} ${selectedAsset.code} to ${isShp(to) ? short(to) : to}. It stays shielded.`);
-      api.notify({ email: session.email, type: "SEND_SHIELDED", title: "Sent privately", amount: formatUnits(amt, selectedAsset.decimals, 4), asset: selectedAsset.code }).catch(() => {});
+      setSuccess({ message: `Privately sent ${formatUnits(amt, selectedAsset.decimals, 4)} ${selectedAsset.code} to ${isShp(to) ? short(to) : to}. It stays shielded.`, txHash: txHash ?? undefined });
+      api.notify({ email: session.email, type: "SEND_SHIELDED", title: "Sent privately", amount: formatUnits(amt, selectedAsset.decimals, 4), asset: selectedAsset.code, txHash: txHash ?? undefined }).catch(() => {});
       return;
     }
 
@@ -213,7 +213,7 @@ export default function SendPage() {
     if (!pr) throw new Error(swapProof.error || "Proof generation failed.");
 
     setStatus("Approve the send on your device...");
-    await session.wallet!.invoke(selectedAsset.poolContractId, "unshield", {
+    const unshieldSendRes = await session.wallet!.invoke(selectedAsset.poolContractId, "unshield", {
       proof_a: buf(pr.proof.a),
       proof_b: buf(pr.proof.b),
       proof_c: buf(pr.proof.c),
@@ -233,8 +233,8 @@ export default function SendPage() {
     }] : [];
 
     session.set({ notes: [...session.notes.filter((n) => n !== note), ...changeNotes] });
-    setSuccess(`Sent ${formatUnits(amt, selectedAsset.decimals, 4)} ${note.asset} to ${short(to)} (now public).`);
-    api.notify({ email: session.email, type: "UNSHIELD", title: "Sent to wallet", amount: formatUnits(amt, selectedAsset.decimals, 4), asset: note.asset }).catch(() => {});
+    setSuccess({ message: `Sent ${formatUnits(amt, selectedAsset.decimals, 4)} ${note.asset} to ${short(to)} (now public).`, txHash: unshieldSendRes.hash });
+    api.notify({ email: session.email, type: "UNSHIELD", title: "Sent to wallet", amount: formatUnits(amt, selectedAsset.decimals, 4), asset: note.asset, txHash: unshieldSendRes.hash }).catch(() => {});
   }
 
   async function handleSend() {
@@ -310,9 +310,14 @@ export default function SendPage() {
               <motion.div
                 initial={{ opacity: 0, y: 8 }}
                 animate={{ opacity: 1, y: 0 }}
-                className="border border-emerald-500/20 bg-emerald-500/[0.03] p-4 rounded-2xl text-emerald-300 text-sm"
+                className="border border-emerald-500/20 bg-emerald-500/[0.03] p-4 rounded-2xl text-emerald-300 text-sm flex items-center gap-2"
               >
-                {success}
+                <span>{success.message}</span>
+                {success.txHash && (
+                  <a href={`https://stellar.expert/explorer/testnet/tx/${success.txHash}`} target="_blank" rel="noopener noreferrer" className="inline-flex items-center text-emerald-400/70 hover:text-emerald-300 transition-colors text-xs font-mono shrink-0" title="View on Stellar Explorer">
+                    ↗
+                  </a>
+                )}
               </motion.div>
             ) : null}
 

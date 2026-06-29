@@ -136,7 +136,7 @@ export class ShieldedPoolClient {
         const info = await this.server.getAccount(kp.publicKey());
         const account = new Account(kp.publicKey(), info.sequenceNumber());
         let tx = new TransactionBuilder(account, { fee: BASE_FEE, networkPassphrase: this.networkPassphrase })
-            .addOperation(new Contract(this.contractId).call(method, ...args)).setTimeout(30).build();
+            .addOperation(new Contract(this.contractId).call(method, ...args)).setTimeout(60).build();
         const sim = await this.server.simulateTransaction(tx);
         if (!rpc.Api.isSimulationSuccess(sim)) throw new Error(`[ShieldedPoolClient] ${method} sim failed: ${JSON.stringify(sim)}`);
         tx = rpc.assembleTransaction(tx, sim).build();
