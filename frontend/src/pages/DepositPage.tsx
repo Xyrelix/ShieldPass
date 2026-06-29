@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import ShieldedKeyGate from "../components/ShieldedKeyGate";
 import { motion } from "motion/react";
 import { Buffer } from "buffer";
 import { fieldToBytes32 } from "@shieldpass/sdk/dist/groth16Prover";
@@ -92,6 +93,7 @@ export default function DepositPage() {
       notes: [...session.notes, {
         amount: amt.toString(), asset: selectedAsset.code, randomness, leafIndex,
         compliance: { hardware_attested: "1", bvn_verified: session.bvnVerified ? "1" : "0", good_standing: "1" },
+        confirmed: true, // insertProof above already landed this leaf on-chain
       }],
     });
     setSuccess({ message: `Shielded ${formatUnits(amt, selectedAsset.decimals, 4)} ${selectedAsset.code} into your private balance.`, txHash: depositRes.hash });
@@ -122,6 +124,7 @@ export default function DepositPage() {
     const changeNotes = BigInt(pr.changeNote.amount) > 0n ? [{
       amount: pr.changeNote.amount, asset: note.asset, randomness: pr.changeNote.randomness,
       leafIndex: index, compliance: note.compliance,
+      confirmed: true, // insertProof above already landed the change leaf on-chain
     }] : [];
     session.set({ notes: [...session.notes.filter((n) => n !== note), ...changeNotes] });
     setSuccess({ message: `Unshielded ${formatUnits(amt, selectedAsset.decimals, 4)} ${note.asset} back to your wallet.`, txHash: unshieldRes.hash });
@@ -245,11 +248,7 @@ export default function DepositPage() {
               : <>A zero-knowledge proof is generated in your browser, then the pool sends the crypto to your smart wallet. The note you spend stays private.</>}
           </div>
 
-          {!session.identity && (
-            <p className="text-amber-400/80 text-xs border border-amber-400/20 bg-amber-400/5 rounded-xl px-4 py-3">
-              Shielded key locked — <span className="text-amber-300 font-medium">log in</span> first to unlock it, then come back here.
-            </p>
-          )}
+          <ShieldedKeyGate />
 
           <button
             onClick={handleSubmit}

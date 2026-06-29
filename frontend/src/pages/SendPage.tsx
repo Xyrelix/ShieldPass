@@ -1,20 +1,35 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { motion } from "motion/react";
 import { Buffer } from "buffer";
 import { api } from "../lib/api";
 import { useSession } from "../lib/session";
+import ShieldedKeyGate from "../components/ShieldedKeyGate";
+import QrScanner from "../components/QrScanner";
 import { useSwapProof } from "../lib/useSwapProof";
 import { useShieldedTransfer } from "../lib/useShieldedTransfer";
 import ErrorNotice from "../components/ErrorNotice";
 import { PUBLIC_ASSETS, assetByCode, formatUnits, parseUnits } from "../lib/assets";
 import { useWalletBalance } from "../lib/useWalletBalance";
-import { addContact, loadContacts, removeContact, type SavedRecipient } from "../lib/bankVault";
 import { useInsertProof } from "../lib/useInsertProof";
 
 const isAddr = (value: string) => /^[GC][A-Z2-7]{55}$/.test(value);
 const isEmail = (value: string) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(value);
 const isShp = (value: string) => value.startsWith("shp_");
 const isShieldPassUser = (value: string) => isEmail(value) || isShp(value);
+
+// A scanned QR may be a deep link (…/send?to=shp_…) or a raw shp_/email/address.
+// Pull the recipient out of either form.
+function recipientFromScan(raw: string): string {
+  const t = raw.trim();
+  try {
+    const to = new URL(t).searchParams.get("to");
+    if (to) return to.trim();
+  } catch {
+    /* not a URL — fall through */
+  }
+  return t;
+}
 const buf = (u8: Uint8Array): Buffer => Buffer.from(u8);
 
 function randomField(): string {
@@ -32,19 +47,6 @@ const fadeUp = {
 
 type Source = "available" | "shielded";
 
-function recipientKind(recipient: string): SavedRecipient["kind"] {
-  if (isEmail(recipient)) return "email";
-  if (isShp(recipient)) return "shielded";
-  return "wallet";
-}
-
-function contactSort(a: SavedRecipient, b: SavedRecipient) {
-  const aStamp = new Date(a.lastUsedAt ?? a.createdAt).getTime();
-  const bStamp = new Date(b.lastUsedAt ?? b.createdAt).getTime();
-  if (aStamp !== bStamp) return bStamp - aStamp;
-  return a.label.localeCompare(b.label);
-}
-
 export default function SendPage() {
   const session = useSession();
   const swapProof = useSwapProof(import.meta.env.VITE_API_URL as string);
@@ -59,11 +61,19 @@ export default function SendPage() {
   const [status, setStatus] = useState("");
   const [error, setError] = useState<unknown>(null);
   const [success, setSuccess] = useState<{ message: string; txHash?: string } | null>(null);
-  const [contacts, setContacts] = useState<SavedRecipient[]>([]);
-  const [contactsLoading, setContactsLoading] = useState(false);
-  const [contactsError, setContactsError] = useState<unknown>(null);
-  const [contactLabel, setContactLabel] = useState("");
-  const [contactQuery, setContactQuery] = useState("");
+  const [scanOpen, setScanOpen] = useState(false);
+  const [searchParams] = useSearchParams();
+
+  // Deep link: a scanned "Receive privately" QR opens …/send?to=shp_… — prefill the
+  // recipient and switch to the shielded (private) tab so the send stays private.
+  useEffect(() => {
+    const to = searchParams.get("to");
+    if (to) {
+      setRecipient(to);
+      setSource("shielded");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const isShielded = source === "shielded";
   const shieldedAssets = Array.from(new Set(session.notes.map((n) => n.asset || "XLM")));
@@ -78,89 +88,6 @@ export default function SendPage() {
     .filter((n) => (n.asset || "XLM") === assetCode)
     .reduce((sum, n) => sum + BigInt(n.amount), 0n);
   const shieldedBalanceStr = formatUnits(shieldedTotal, selectedAsset?.decimals ?? 7, 4);
-
-  useEffect(() => {
-    let cancelled = false;
-    if (!session.email || !session.identity) {
-      setContacts([]);
-      setContactsError(null);
-      setContactsLoading(false);
-      return;
-    }
-
-    setContactsLoading(true);
-    setContactsError(null);
-    loadContacts(session.email)
-      .then((items) => {
-        if (!cancelled) setContacts(items.slice().sort(contactSort));
-      })
-      .catch((err) => {
-        if (!cancelled) setContactsError(err);
-      })
-      .finally(() => {
-        if (!cancelled) setContactsLoading(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [session.email, session.identity]);
-
-  const filteredContacts = useMemo(() => {
-    const query = contactQuery.trim().toLowerCase();
-    const list = contacts.slice().sort(contactSort);
-    if (!query) return list;
-    return list.filter((item) =>
-      [item.label, item.recipient, item.kind, item.asset ?? ""].some((field) => field.toLowerCase().includes(query)),
-    );
-  }, [contacts, contactQuery]);
-
-  function updateContactList(next: SavedRecipient[]) {
-    setContacts(next.slice().sort(contactSort));
-  }
-
-  async function saveRecipient() {
-    const to = recipient.trim();
-    if (!session.email || !session.identity) throw new Error("Unlock your vault before saving recipients.");
-    if (!to) throw new Error("Enter a recipient first.");
-
-    const now = new Date().toISOString();
-    const kind = recipientKind(to);
-    const next = await addContact(session.email, {
-      id: `${kind}:${to.toLowerCase()}`,
-      label: contactLabel.trim() || to,
-      recipient: to,
-      kind,
-      asset: assetCode,
-      createdAt: now,
-      lastUsedAt: now,
-    });
-
-    updateContactList(next);
-    setContactLabel("");
-  }
-
-  async function useRecipient(contact: SavedRecipient) {
-    const now = new Date().toISOString();
-    setRecipient(contact.recipient);
-    setContactLabel(contact.label);
-
-    if (contact.kind === "wallet") setSource("available");
-    else setSource("shielded");
-
-    if (contact.asset) setAssetCode(contact.asset);
-
-    if (session.email && session.identity) {
-      const next = await addContact(session.email, { ...contact, lastUsedAt: now });
-      updateContactList(next);
-    }
-  }
-
-  async function deleteRecipient(contactId: string) {
-    if (!session.email || !session.identity) return;
-    const next = await removeContact(session.email, contactId);
-    updateContactList(next);
-  }
 
   function switchSource(next: Source) {
     if (busy) return;
@@ -230,6 +157,7 @@ export default function SendPage() {
       randomness: pr.changeNote.randomness,
       leafIndex: index,
       compliance: note.compliance,
+      confirmed: true, // insertProof above already landed the change leaf on-chain
     }] : [];
 
     session.set({ notes: [...session.notes.filter((n) => n !== note), ...changeNotes] });
@@ -276,7 +204,7 @@ export default function SendPage() {
 
   return (
     <motion.div className="flex flex-col items-center w-full pt-4 sm:pt-6 pb-20 relative z-10" initial="hidden" animate="visible">
-      <div className="w-full max-w-5xl">
+      <div className="w-full max-w-xl">
         <motion.div variants={fadeUp} className="text-center mb-8">
           <h1 className="geist-heading text-3xl sm:text-4xl md:text-5xl bg-gradient-to-r from-white via-white to-white/50 bg-clip-text text-transparent font-medium">
             Send
@@ -298,8 +226,7 @@ export default function SendPage() {
           ))}
         </motion.div>
 
-        <div className="grid gap-6 lg:grid-cols-[minmax(0,1.2fr)_minmax(320px,0.8fr)]">
-          <div className="space-y-6">
+        <div className="space-y-6">
             {error ? (
               <div className="border border-red-500/20 bg-red-500/[0.02] p-4 rounded-2xl">
                 <ErrorNotice error={error} />
@@ -339,15 +266,24 @@ export default function SendPage() {
 
               <div>
                 <label className="text-white/40 text-xs font-mono tracking-wider uppercase">Recipient address</label>
-                <input
-                  value={recipient}
-                  onChange={(e) => setRecipient(e.target.value)}
-                  placeholder="G... or C..."
-                  className="mt-2 w-full bg-white/[0.03] border border-white/10 rounded-xl px-4 py-3 text-white text-sm font-mono outline-none focus:border-indigo-500/40 transition-colors"
-                />
-                <p className="mt-2 text-[11px] text-white/35 leading-relaxed">
-                  Save trusted recipients in the vault, then tap them on the right to reuse the same destination quickly.
-                </p>
+                <div className="relative mt-2">
+                  <input
+                    value={recipient}
+                    onChange={(e) => setRecipient(e.target.value)}
+                    placeholder={isShielded ? "email, shp_… (private) or G…/C… (public)" : "G... or C..."}
+                    className={`w-full bg-white/[0.03] border border-white/10 rounded-xl px-4 py-3 text-white text-sm font-mono outline-none focus:border-indigo-500/40 transition-colors ${isShielded ? "pr-11" : ""}`}
+                  />
+                  {isShielded && (
+                    <button
+                      type="button"
+                      onClick={() => setScanOpen(true)}
+                      title="Scan a ShieldPass QR"
+                      className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded-lg text-white/40 hover:text-white hover:bg-white/10 transition-colors"
+                    >
+                      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m4-8h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z" /></svg>
+                    </button>
+                  )}
+                </div>
               </div>
 
               <div>
@@ -377,9 +313,15 @@ export default function SendPage() {
 
               <div className="text-white/35 text-xs leading-relaxed border border-white/5 bg-white/[0.01] rounded-xl p-3">
                 {isShielded ? (
-                  <>
-                    You spend a private note - <span className="text-white/70">nobody can trace which deposit it came from</span>. The recipient receives normal (public) crypto in their wallet.
-                  </>
+                  isShieldPassUser(recipient.trim()) ? (
+                    <>
+                      <span className="text-emerald-300/80">Fully private.</span> Sending to a ShieldPass {isShp(recipient.trim()) ? "shp_ address" : "email"} — the recipient receives a <span className="text-white/70">shielded note</span>, private on both ends.
+                    </>
+                  ) : (
+                    <>
+                      You spend a private note - <span className="text-white/70">nobody can trace which deposit it came from</span> - but sending to a plain wallet address <span className="text-amber-300/80">unshields it (the recipient gets public crypto)</span>. To keep it fully private, use their <span className="text-white/70">email or shp_ address</span>.
+                    </>
+                  )
                 ) : (
                   <>
                     A normal <span className="text-white/70">public</span> on-chain transfer from your wallet. To send privately, switch to <span className="text-white/70">From Shielded</span>.
@@ -387,11 +329,17 @@ export default function SendPage() {
                 )}
               </div>
 
-              {isShielded && !session.identity && (
-                <p className="text-amber-400/80 text-xs border border-amber-400/20 bg-amber-400/5 rounded-xl px-4 py-3">
-                  Shielded key locked — <span className="text-amber-300 font-medium">log in</span> first to unlock it, then come back here.
-                </p>
-              )}
+              {isShielded && <ShieldedKeyGate />}
+
+              <QrScanner
+                open={scanOpen}
+                onClose={() => setScanOpen(false)}
+                onResult={(text) => {
+                  setRecipient(recipientFromScan(text));
+                  setSource("shielded");
+                  setScanOpen(false);
+                }}
+              />
 
               <button
                 onClick={handleSend}
@@ -401,109 +349,6 @@ export default function SendPage() {
                 {busy ? (proving ? "Generating proof..." : status || "Sending...") : (isShielded ? "Send privately" : "Send")}
               </button>
             </motion.div>
-          </div>
-
-          <motion.aside variants={fadeUp} className="bg-gradient-to-br from-blue-900/30 to-indigo-900/20 backdrop-blur-xl border border-blue-500/20 shadow-2xl rounded-3xl p-6 text-blue-50">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <p className="font-mono text-[10px] uppercase tracking-[0.3em] text-white/35">Vault contacts</p>
-                <h2 className="geist-heading text-2xl mt-2 font-medium">Saved recipients</h2>
-                <p className="text-white/40 text-sm mt-2 leading-relaxed">
-                  These live inside the same encrypted bank vault as your saved bank details.
-                </p>
-              </div>
-              <span className="px-3 py-1 rounded-full border border-white/10 bg-white/5 text-xs font-mono text-white/60">
-                {filteredContacts.length}
-              </span>
-            </div>
-
-            <div className="mt-5">
-              <label className="text-white/40 text-xs font-mono tracking-wider uppercase">Search</label>
-              <input
-                value={contactQuery}
-                onChange={(e) => setContactQuery(e.target.value)}
-                placeholder="Filter by name, address, or type"
-                className="mt-2 w-full bg-white/[0.03] border border-white/10 rounded-xl px-4 py-3 text-white text-sm outline-none focus:border-indigo-500/40 transition-colors"
-              />
-            </div>
-
-            <div className="mt-5 space-y-3">
-              {contactsLoading ? (
-                <div className="text-sm text-white/45 border border-white/5 bg-white/[0.01] rounded-2xl p-4">Loading contacts...</div>
-              ) : contactsError ? (
-                <div className="text-sm text-red-300 border border-red-500/20 bg-red-500/[0.02] rounded-2xl p-4">
-                  <ErrorNotice error={contactsError} />
-                </div>
-              ) : filteredContacts.length === 0 ? (
-                <div className="text-sm text-white/45 border border-white/5 bg-white/[0.01] rounded-2xl p-5 leading-relaxed">
-                  No saved recipients yet. Send to a few trusted people, then save them here for faster repeat transfers.
-                </div>
-              ) : (
-                filteredContacts.map((contact) => (
-                  <div key={contact.id} className="group rounded-2xl border border-white/10 bg-white/[0.02] p-4 hover:bg-white/[0.04] transition-colors">
-                    <button
-                      type="button"
-                      onClick={() => void useRecipient(contact)}
-                      className="w-full text-left flex items-start justify-between gap-3"
-                    >
-                      <div className="min-w-0">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="text-white font-medium truncate">{contact.label}</span>
-                          <span className="text-[10px] uppercase tracking-[0.25em] px-2 py-1 rounded-full border border-white/10 text-white/45">
-                            {contact.kind}
-                          </span>
-                          {contact.asset ? (
-                            <span className="text-[10px] uppercase tracking-[0.2em] px-2 py-1 rounded-full border border-indigo-500/20 bg-indigo-500/10 text-indigo-300">
-                              {contact.asset}
-                            </span>
-                          ) : null}
-                        </div>
-                        <div className="mt-2 text-xs font-mono text-white/45 break-all">{contact.recipient}</div>
-                        <div className="mt-2 text-[11px] text-white/30">
-                          {contact.lastUsedAt ? `Last used ${new Date(contact.lastUsedAt).toLocaleDateString()}` : `Saved ${new Date(contact.createdAt).toLocaleDateString()}`}
-                        </div>
-                      </div>
-                      <span className="text-white/25 group-hover:text-white/60 transition-colors">Use</span>
-                    </button>
-
-                    <div className="mt-4 flex items-center justify-between gap-3">
-                      <span className="text-[10px] uppercase tracking-[0.2em] text-white/25">
-                        {contact.kind === "wallet" ? "Public wallet" : "ShieldPass user"}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => void deleteRecipient(contact.id)}
-                        className="text-xs text-white/35 hover:text-red-300 transition-colors"
-                      >
-                        Remove
-                      </button>
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-
-            <div className="mt-6 pt-5 border-t border-white/10">
-              <p className="font-mono text-[10px] uppercase tracking-[0.3em] text-white/35">Quick save</p>
-              <h3 className="mt-2 text-sm font-medium text-white">Store the current recipient</h3>
-              <div className="mt-4 space-y-3">
-                <input
-                  value={contactLabel}
-                  onChange={(e) => setContactLabel(e.target.value)}
-                  placeholder="Label, alias, or note"
-                  className="w-full bg-white/[0.03] border border-white/10 rounded-xl px-4 py-3 text-white text-sm outline-none focus:border-indigo-500/40 transition-colors"
-                />
-                <button
-                  type="button"
-                  onClick={() => void saveRecipient()}
-                  disabled={!recipient || busy || (session.onboarded && !session.identity)}
-                  className="w-full py-3 rounded-xl bg-white/10 text-white font-medium hover:bg-white/15 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                >
-                  Save recipient
-                </button>
-              </div>
-            </div>
-          </motion.aside>
         </div>
       </div>
     </motion.div>

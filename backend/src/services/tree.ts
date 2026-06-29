@@ -145,16 +145,21 @@ class TreeService {
             return { txHash: undefined };
         }
 
-        let txHash: string | undefined;
-        if (CONTRACT_ID && RELAYER_SECRET) {
-            const pool = new ShieldedPoolClient(RPC_URL, NETWORK, CONTRACT_ID);
-            txHash = await pool.insert(proof, publicSignals, Keypair.fromSecret(RELAYER_SECRET));
-            // Wait for the tx to be committed before marking the leaf confirmed.
-            // If the tx fails on-chain the leaf stays pending and the retry mechanism
-            // can re-submit a fresh proof without DB/chain divergence.
-            await pool.waitForLanding(txHash);
-            console.log(`[tree/confirm] index=${index} tx=${txHash}`);
+        // NEVER mark a leaf confirmed without actually landing the insert on-chain.
+        // If the contract/relayer aren't configured (e.g. env vars momentarily unset
+        // mid-deploy), throw so the leaf stays pending — silently confirming here is
+        // what creates a phantom DB leaf that the chain doesn't have, diverging the tree
+        // and making every later spend fail with "unknown merkle root".
+        if (!CONTRACT_ID || !RELAYER_SECRET) {
+            throw new Error('[tree/confirm] CONTRACT_ID/RELAYER_SECRET not configured — refusing to mark leaf confirmed (would diverge the tree).');
         }
+        const pool = new ShieldedPoolClient(RPC_URL, NETWORK, CONTRACT_ID);
+        const txHash = await pool.insert(proof, publicSignals, Keypair.fromSecret(RELAYER_SECRET));
+        // Wait for the tx to be committed before marking the leaf confirmed.
+        // If the tx fails on-chain the leaf stays pending and the retry mechanism
+        // can re-submit a fresh proof without DB/chain divergence.
+        await pool.waitForLanding(txHash);
+        console.log(`[tree/confirm] index=${index} tx=${txHash}`);
 
         await prisma.treeLeaf.update({ where: { index }, data: { status: 'confirmed' } });
         return { txHash };

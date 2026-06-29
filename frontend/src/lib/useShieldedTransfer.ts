@@ -116,7 +116,21 @@ export function useShieldedTransfer(apiBaseUrl: string) {
             const changeNotes: ShieldedNote[] = changeAmount > 0n ? [{
                 amount: changeAmount.toString(), asset: note.asset, randomness: change_randomness.toString(),
                 leafIndex: changeIndex, compliance: note.compliance,
+                confirmed: true, // insertProof above already landed the change leaf on-chain
             }] : [];
+
+            // Deliver a SELF-addressed blob for the change note too, so our own balance is
+            // recoverable from the blob store after a logout/wipe or on a new device. Without
+            // this, change notes live only in localStorage and are lost when the session is reset.
+            if (changeAmount > 0n) {
+                const changePlain = new TextEncoder().encode(JSON.stringify({
+                    amount: changeAmount.toString(), randomness: change_randomness.toString(),
+                    compliance: note.compliance, asset: note.asset,
+                }));
+                const enc = encryptNote(session.identity.encPublic, changePlain);
+                await api.postNoteBlob({ commitment: outChange, ephemeralPub: hex(enc.ephemeralPublic), ciphertext: hex(enc.ciphertext) });
+            }
+
             session.set({ notes: [...session.notes.filter((n) => n !== note), ...changeNotes] });
 
             // sanity: the recipient commitment we delivered must match the proof output

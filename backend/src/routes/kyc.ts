@@ -1,6 +1,9 @@
 import { Router } from 'express';
-import { TrustedIssuer, isValidSorobanAddress, noteCommitment } from '@shieldpass/sdk';
+import { TrustedIssuer, isValidSorobanAddress, noteCommitment, encryptNote } from '@shieldpass/sdk';
 import { prisma } from '../db';
+
+const fromHex = (s: string) => Uint8Array.from(s.match(/.{2}/g)!.map((b) => parseInt(b, 16)));
+const toHex = (u8: Uint8Array) => Buffer.from(u8).toString('hex');
 import { treeService } from '../services/tree';
 import { notify } from './notifications';
 import { verifyBvn } from '../services/bvn';
@@ -84,6 +87,26 @@ router.post('/link-wallet', async (req, res) => {
         circuitInput,
       };
       console.log(`[kyc/link-wallet] reserved ${noteAmount} ${FAUCET_NOTE_ASSET} owner-based ZK Note at index ${index}.`);
+
+      // Publish a SELF-addressed encrypted blob for the faucet note so the user's
+      // balance is recoverable from the blob store after a logout / localStorage wipe
+      // or on a new device. The shielded key is deterministic (PIN + email), so the
+      // note scanner re-discovers this note by trial-decrypting the blob. The plaintext
+      // shape MUST match what useNoteScanner expects (amount/randomness/compliance/asset).
+      try {
+        const plaintext = new TextEncoder().encode(JSON.stringify({
+          amount: noteAmount.toString(),
+          randomness: randomness.toString(),
+          compliance: { hardware_attested: '1', bvn_verified: '0', good_standing: '1' },
+          asset: FAUCET_NOTE_ASSET,
+        }));
+        const { ephemeralPublic, ciphertext } = encryptNote(fromHex(shieldedEncPub), plaintext);
+        await prisma.noteBlob.create({
+          data: { commitment: commitment.toString(), ephemeralPub: toHex(ephemeralPublic), ciphertext: toHex(ciphertext) },
+        });
+      } catch (blobErr) {
+        console.error('[kyc/link-wallet] faucet blob publish failed (note still usable this session):', blobErr);
+      }
 
       // ── Background relayer chain (off the HTTP path, serialized by tx landing) ──
       // 1. faucet_seed (registers the commitment — gas only) + pool funding (backs the note).

@@ -7,6 +7,7 @@ import { useSession } from "../lib/session";
 import { useNoteScanner } from "../lib/useNoteScanner";
 import { useIncomingTransactions } from "../lib/useIncomingTransactions";
 import { api } from "../lib/api";
+import { assetByCode, formatUnits } from "../lib/assets";
 import NotificationBell from "./NotificationBell";
 
 
@@ -29,7 +30,10 @@ export default function MainLayout({
   // Background scan for incoming private (shielded) payments.
   useNoteScanner(import.meta.env.VITE_API_URL as string, (amount, asset) => {
     if (session.email) {
-      api.notify({ email: session.email, type: "RECEIVE_SHIELDED", title: "Private payment received", amount, asset }).catch(() => {});
+      // `amount` arrives as raw stroops from the scanner — format it to human units
+      // (e.g. 270000000 → "27 XLM") before showing it in the notification.
+      const formatted = formatUnits(BigInt(amount), assetByCode(asset)?.decimals ?? 7, 4);
+      api.notify({ email: session.email, type: "RECEIVE_SHIELDED", title: "Private payment received", amount: formatted, asset }).catch(() => {});
     }
   });
 

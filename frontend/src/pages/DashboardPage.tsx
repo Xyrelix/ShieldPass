@@ -5,6 +5,7 @@ import { api } from "../lib/api";
 import { useSession } from "../lib/session";
 import ErrorNotice from "../components/ErrorNotice";
 import ShieldedBalance from "../components/ShieldedBalance";
+import ReceiveModal from "../components/ReceiveModal";
 import type { Balance, SwapRecord } from "../types";
 import { PUBLIC_ASSETS, assetByCode, assetLabel, formatUnits } from "../lib/assets";
 
@@ -62,6 +63,7 @@ export default function DashboardPage() {
   }, [address]);
 
   const [copied, setCopied] = useState(false);
+  const [receiveOpen, setReceiveOpen] = useState(false);
   const handleCopy = () => {
     if (!address) return;
     navigator.clipboard.writeText(address);
@@ -87,11 +89,18 @@ export default function DashboardPage() {
             <h1 className="geist-heading text-3xl sm:text-4xl md:text-5xl bg-gradient-to-r from-white via-white to-white/50 bg-clip-text text-transparent font-medium">Portfolio Dashboard</h1>
             <p className="text-white/40 text-sm mt-2 font-light">Your smart-wallet balances and zero-knowledge swap history.</p>
           </div>
-          <Link to="/withdraw" className="px-5 py-2.5 rounded-full font-mono text-xs border border-white/10 bg-white/5 hover:bg-white/10 transition-all flex items-center gap-2 group self-start md:self-auto text-white">
-            Swap Crypto
-            <svg className="w-3.5 h-3.5 group-hover:translate-x-1 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
-          </Link>
+          <div className="flex items-center gap-2 self-start md:self-auto">
+            <button onClick={() => setReceiveOpen(true)} className="px-5 py-2.5 rounded-full font-mono text-xs border border-indigo-500/30 bg-indigo-500/10 hover:bg-indigo-500/20 transition-all flex items-center gap-2 text-white">
+              Receive privately
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m4-8h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z" /></svg>
+            </button>
+            <Link to="/withdraw" className="px-5 py-2.5 rounded-full font-mono text-xs border border-white/10 bg-white/5 hover:bg-white/10 transition-all flex items-center gap-2 group text-white">
+              Swap Crypto
+              <svg className="w-3.5 h-3.5 group-hover:translate-x-1 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+            </Link>
+          </div>
         </motion.div>
+        <ReceiveModal open={receiveOpen} onClose={() => setReceiveOpen(false)} />
 
         <motion.div variants={fadeUp} className="mb-12">
           <div className="bg-gradient-to-br from-blue-900/30 to-indigo-900/20 backdrop-blur-xl rounded-3xl p-6 flex flex-col sm:flex-row items-center justify-between gap-6 border border-blue-500/20 shadow-2xl">

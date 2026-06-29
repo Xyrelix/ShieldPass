@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "motion/react";
 import { api } from "../lib/api";
 import { useSession } from "../lib/session";
+import ShieldedKeyGate from "../components/ShieldedKeyGate";
 import { useSwapProof } from "../lib/useSwapProof";
 import ErrorNotice from "../components/ErrorNotice";
 import { Buffer } from "buffer";
@@ -272,6 +273,7 @@ export default function SwapPage() {
           randomness: pr.changeNote.randomness,
           leafIndex: exec.changeLeafIndex,
           compliance: currentNote.compliance,
+          confirmed: true, // change leaf already inserted on-chain (changeLeafIndex resolved)
         }] : [];
         session.set({ notes: [...session.notes.filter((n) => n !== currentNote), ...changeNotes] });
       }
@@ -482,11 +484,7 @@ export default function SwapPage() {
             )}
           </div>
 
-          {!session.identity && (
-            <p className="text-amber-400/80 text-xs border border-amber-400/20 bg-amber-400/5 rounded-xl px-4 py-3">
-              Shielded key locked — <span className="text-amber-300 font-medium">log in</span> first to unlock it, then come back here.
-            </p>
-          )}
+          <ShieldedKeyGate />
 
           <button
             onClick={() => handleSwap()}

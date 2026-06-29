@@ -144,14 +144,35 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         return next
       })
     },
-    reset: () => { try { localStorage.removeItem(STORAGE_KEY) } catch { /* ignore */ } lockBankVault(); setState(EMPTY) },
+    reset: () => {
+      try {
+        localStorage.removeItem(STORAGE_KEY)
+        // Reset scan cursors so the NEXT login re-scans the blob store from 0 and rebuilds
+        // the shielded balance. Notes are recoverable from encrypted blobs (faucet, received
+        // and change are all published), so wiping the local cache here is safe — but only if
+        // the scanner starts fresh; otherwise it resumes past already-seen blobs and misses them.
+        if (state.email) localStorage.removeItem(`shp_scan_cursor_${state.email}`)
+        if (state.address) {
+          localStorage.removeItem(`shieldpass_incoming_cursor_${state.address}`)
+          localStorage.removeItem(`shieldpass_incoming_seen_${state.address}`)
+        }
+      } catch { /* ignore */ }
+      lockBankVault(); setState(EMPTY)
+    },
     unlockIdentityWithPin: async (pin: string) => {
       const email = state.email
-      if (!email) return
+      if (!email) throw new Error('No account in this session — log in from the start screen.')
       const { deriveSeedFromPassword, deriveIdentityFromSeed } = await import('./shieldedKey')
       const { unlockBankVault } = await import('./bankVault')
       const seed = await deriveSeedFromPassword(pin, email)
       const identity = deriveIdentityFromSeed(seed)
+      // Guard against a wrong PIN: a mismatched PIN silently derives a DIFFERENT (but
+      // valid-looking) identity that can't decrypt the user's notes or spend them. The
+      // shp_ address is persisted at onboarding, so verify the derived identity matches
+      // before committing it — otherwise reject so the UI can show "incorrect PIN".
+      if (state.shieldedAddress && identity.address !== state.shieldedAddress) {
+        throw new Error('Incorrect PIN — could not unlock your shielded key.')
+      }
       await unlockBankVault(seed, email)
       setState(s => { const next = { ...s, identity }; savePersisted(next); return next })
     },

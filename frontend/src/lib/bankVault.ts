@@ -11,19 +11,8 @@ type VaultRecord = {
   updatedAt: string;
 };
 
-export interface SavedRecipient {
-  id: string;
-  label: string;
-  recipient: string;
-  kind: "wallet" | "email" | "shielded";
-  asset?: string;
-  createdAt: string;
-  lastUsedAt?: string | null;
-}
-
 type VaultState = {
   banks: BankAccount[];
-  contacts: SavedRecipient[];
 };
 
 let vaultKey: CryptoKey | null = null;
@@ -109,18 +98,17 @@ async function decryptJson<T>(record: VaultRecord, key: CryptoKey): Promise<T> {
 }
 
 function blankVault(): VaultState {
-  return { banks: [], contacts: [] };
+  return { banks: [] };
 }
 
 function normalizeVault(value: unknown): VaultState {
   if (Array.isArray(value)) {
-    return { banks: value as BankAccount[], contacts: [] };
+    return { banks: value as BankAccount[] };
   }
   if (value && typeof value === "object") {
     const maybe = value as Partial<VaultState>;
     return {
       banks: Array.isArray(maybe.banks) ? maybe.banks : [],
-      contacts: Array.isArray(maybe.contacts) ? maybe.contacts : [],
     };
   }
   return blankVault();
@@ -165,32 +153,5 @@ export async function addBank(email: string, bank: BankAccount): Promise<BankAcc
   const existing = await loadBanks(email);
   const next = [...existing.filter((b) => b.id !== bank.id), bank];
   await saveBanks(email, next);
-  return next;
-}
-
-export async function loadContacts(email: string): Promise<SavedRecipient[]> {
-  const vault = await loadVault(email);
-  return vault.contacts;
-}
-
-export async function saveContacts(email: string, contacts: SavedRecipient[]): Promise<void> {
-  const vault = await loadVault(email);
-  await saveVault(email, { ...vault, contacts });
-}
-
-export async function addContact(email: string, contact: SavedRecipient): Promise<SavedRecipient[]> {
-  const existing = await loadContacts(email);
-  const next = [
-    ...existing.filter((item) => item.id !== contact.id),
-    { ...contact, lastUsedAt: contact.lastUsedAt ?? contact.createdAt },
-  ];
-  await saveContacts(email, next);
-  return next;
-}
-
-export async function removeContact(email: string, contactId: string): Promise<SavedRecipient[]> {
-  const existing = await loadContacts(email);
-  const next = existing.filter((item) => item.id !== contactId);
-  await saveContacts(email, next);
   return next;
 }

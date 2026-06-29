@@ -7,6 +7,9 @@ import { formatUnits } from "./assets";
 const RPC_URL = import.meta.env.VITE_RPC_URL || "https://soroban-testnet.stellar.org";
 const POLL_MS = 20_000;
 const LEDGERS_LOOKBACK = 100; // ~8 min of history on first load
+// The shielded pool. Transfers FROM it (unshields / swap payouts) are already announced
+// by their own flow, so we must not double-notify them as a generic public "Received".
+const POOL_CONTRACT = import.meta.env.VITE_ESCROW_CONTRACT_ID as string | undefined;
 
 // Map SAC contract address → { code, decimals }
 function buildSacMeta(): Record<string, { code: string; decimals: number }> {
@@ -64,14 +67,18 @@ export function useIncomingTransactions() {
           if (event.topic.length < 3) continue;
           if (seen.has(event.id)) continue;
 
-          let fn: unknown, to: unknown;
+          let fn: unknown, from: unknown, to: unknown;
           try {
             fn = scValToNative(event.topic[0]);
+            from = scValToNative(event.topic[1]);
             to = scValToNative(event.topic[2]);
           } catch { continue; }
 
           if (fn !== "transfer") continue;
           if (to !== address) continue; // not for us
+          // Pool-originated transfer = an unshield or swap payout, already notified by its
+          // own flow. Skip it here so the user doesn't get a duplicate "Received" alert.
+          if (POOL_CONTRACT && from === POOL_CONTRACT) { seen.add(event.id); continue; }
 
           const contractId = typeof event.contractId === "string" ? event.contractId : event.contractId?.toString() ?? "";
           const meta = SAC_META[contractId];

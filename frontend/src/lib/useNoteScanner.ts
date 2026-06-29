@@ -38,6 +38,9 @@ export function useNoteScanner(apiBaseUrl: string, onReceived?: (amount: string,
                         const added = session.addNote({
                             amount: String(note.amount), asset: String(note.asset ?? "XLM"),
                             randomness: String(note.randomness), leafIndex: index, compliance: note.compliance,
+                            // The scanner only finds notes already inserted in the tree (treeIndexOf
+                            // resolved), so they're confirmed/spendable — not "settling".
+                            confirmed: true,
                         });
                         if (added) onRef.current?.(String(note.amount), String(note.asset ?? "XLM"));
                     } catch {
