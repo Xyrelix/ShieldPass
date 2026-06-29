@@ -133,23 +133,31 @@ export class ShieldedPoolClient {
     }
 
     private async invokeKeypair(kp: Keypair, method: string, ...args: xdr.ScVal[]): Promise<string> {
-        const info = await this.server.getAccount(kp.publicKey());
-        const account = new Account(kp.publicKey(), info.sequenceNumber());
-        let tx = new TransactionBuilder(account, { fee: BASE_FEE, networkPassphrase: this.networkPassphrase })
-            .addOperation(new Contract(this.contractId).call(method, ...args)).setTimeout(60).build();
-        const sim = await this.server.simulateTransaction(tx);
-        if (!rpc.Api.isSimulationSuccess(sim)) throw new Error(`[ShieldedPoolClient] ${method} sim failed: ${JSON.stringify(sim)}`);
-        tx = rpc.assembleTransaction(tx, sim).build();
-        tx.sign(kp);
-        const sent = await this.server.sendTransaction(tx);
-        if (sent.status === 'ERROR') {
-            const detail = (sent as any).errorResult ? JSON.stringify((sent as any).errorResult) : 'unknown';
-            throw new Error(`[ShieldedPoolClient] sendTransaction rejected (${method}): ${detail}`);
+        const MAX_ATTEMPTS = 6;
+        let lastErr: Error = new Error(`[ShieldedPoolClient] sendTransaction overloaded (${method}) — all retries exhausted`);
+        for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+            if (attempt > 0) await new Promise(r => setTimeout(r, 3000 * attempt));
+            const info = await this.server.getAccount(kp.publicKey());
+            const account = new Account(kp.publicKey(), info.sequenceNumber());
+            let tx = new TransactionBuilder(account, { fee: BASE_FEE, networkPassphrase: this.networkPassphrase })
+                .addOperation(new Contract(this.contractId).call(method, ...args)).setTimeout(60).build();
+            const sim = await this.server.simulateTransaction(tx);
+            if (!rpc.Api.isSimulationSuccess(sim)) throw new Error(`[ShieldedPoolClient] ${method} sim failed: ${JSON.stringify(sim)}`);
+            tx = rpc.assembleTransaction(tx, sim).build();
+            tx.sign(kp);
+            const sent = await this.server.sendTransaction(tx);
+            if (sent.status === 'ERROR') {
+                const detail = (sent as any).errorResult ? JSON.stringify((sent as any).errorResult) : 'unknown';
+                throw new Error(`[ShieldedPoolClient] sendTransaction rejected (${method}): ${detail}`);
+            }
+            if (sent.status === 'DUPLICATE') return sent.hash;
+            if (sent.status === 'TRY_AGAIN_LATER') {
+                lastErr = new Error(`[ShieldedPoolClient] sendTransaction overloaded (${method}) — attempt ${attempt + 1}/${MAX_ATTEMPTS}`);
+                continue;
+            }
+            return sent.hash;
         }
-        if (sent.status === 'TRY_AGAIN_LATER') {
-            throw new Error(`[ShieldedPoolClient] sendTransaction overloaded (${method}) — retry`);
-        }
-        return sent.hash;
+        throw lastErr;
     }
 
     /** keypair (backend) or passkey (browser smart wallet) signing. */
