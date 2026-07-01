@@ -22,7 +22,13 @@
       "Bash(node -e \"console.log\\(require\\('@openzeppelin/relayer-plugin-channels/package.json'\\).version\\)\")",
       "Bash(echo \"installed channels version: $\\(node -e \"console.log\\(require\\('@openzeppelin/relayer-plugin-channels/package.json'\\).version\\)\"\\)\")",
       "Bash(npx tsc *)",
-      "Bash(node *)"
+      "Bash(node *)",
+      "Bash(cargo build *)",
+      "Bash(cargo test *)",
+      "Bash(cp build/groth16_fixtures.rs ../contracts/shielded_pool/src/test_fixtures.rs)",
+      "Read(//mnt/c/Users/USER/contracts/shielded_pool/src/**)",
+      "Bash(echo \"SDK exit: $?\")",
+      "Bash(echo \"backend exit: $?\")"
     ]
   }
 }
