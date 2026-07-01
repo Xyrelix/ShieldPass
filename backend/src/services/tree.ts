@@ -200,22 +200,57 @@ class TreeService {
             throw new Error('[tree/confirm] pool contract id / RELAYER_SECRET not configured — refusing to mark leaf confirmed (would diverge the tree).');
         }
         const pool = new ShieldedPoolClient(RPC_URL, NETWORK, this.poolId);
-        const txHash = await pool.insert(proof, publicSignals, Keypair.fromSecret(RELAYER_SECRET));
-        await pool.waitForLanding(txHash);
-
-        // Lock the DB to on-chain reality: the contract's current_root must now equal the new_root
-        // this insert proved (public_signals[1]). If it doesn't, the insert didn't land the way we
-        // think — do NOT mark the leaf confirmed, because recording a leaf the chain didn't actually
-        // accept is exactly what corrupts the tree and breaks every later spend.
+        // new_root this insert proves (public_signals[1]). The on-chain current_root must equal this
+        // for the insert to have landed — that's our single source of truth for what really happened.
         const expectedRoot = BigInt('0x' + Buffer.from(publicSignals[1]).toString('hex'));
-        const chainRoot = BigInt('0x' + Buffer.from(await pool.currentRoot()).toString('hex'));
-        if (chainRoot !== expectedRoot) {
-            throw new Error(`[tree/confirm] pool=${this.poolId} index=${index}: on-chain root ${chainRoot} != inserted new_root ${expectedRoot} — refusing to confirm (tree would diverge).`);
-        }
-        console.log(`[tree/confirm] pool=${this.poolId} index=${index} tx=${txHash} (root verified against chain)`);
 
-        await prisma.treeLeaf.update({ where: { poolId_index: { poolId: this.poolId, index } }, data: { status: 'confirmed' } });
-        return { txHash };
+        let txHash: string | undefined;
+        let submitErr: unknown;
+        try {
+            txHash = await pool.insert(proof, publicSignals, Keypair.fromSecret(RELAYER_SECRET));
+            await pool.waitForLanding(txHash);
+        } catch (err) {
+            // Submission/landing errored (e.g. `read ECONNRESET` from the RPC). The insert may STILL
+            // have landed — decide from the chain root below rather than assuming failure.
+            submitErr = err;
+        }
+
+        let chainRoot: bigint;
+        try {
+            chainRoot = BigInt('0x' + Buffer.from(await pool.currentRoot()).toString('hex'));
+        } catch {
+            // Can't read the chain either — leave the pending leaf for the TTL/retry and surface the error.
+            throw submitErr instanceof Error ? submitErr : new Error('[tree/confirm] insert failed and chain unreachable.');
+        }
+
+        if (chainRoot === expectedRoot) {
+            // The insert landed (whether or not the submit call threw). Confirm it.
+            await prisma.treeLeaf.update({ where: { poolId_index: { poolId: this.poolId, index } }, data: { status: 'confirmed' } });
+            if (submitErr) console.warn(`[tree/confirm] pool=${this.poolId} index=${index} landed despite transient error: ${submitErr instanceof Error ? submitErr.message : submitErr}`);
+            else console.log(`[tree/confirm] pool=${this.poolId} index=${index} tx=${txHash} (root verified against chain)`);
+            return { txHash };
+        }
+
+        // The insert did NOT land. Roll the pending leaf back IMMEDIATELY (don't wait for the 2-min
+        // TTL) — a lingering pending leaf poisons the shared in-memory tree and blocks EVERY other
+        // user's insert. The browser can re-assign + re-prove.
+        await this.rollbackPendingFrom(index);
+        throw submitErr instanceof Error ? submitErr
+            : new Error(`[tree/confirm] pool=${this.poolId} index=${index}: insert did not land on-chain — rolled back.`);
+    }
+
+    /**
+     * Roll back pending leaves at `index` and above, and invalidate the in-memory tree so it
+     * rebuilds without them. Pending leaves are an append-only tail; a failed insert at `index`
+     * means nothing at or above it can have landed on-chain, so they must all be dropped. This is
+     * the fast path that stops one failed/interrupted insert from stalling everyone.
+     */
+    async rollbackPendingFrom(index: number): Promise<void> {
+        const { count } = await prisma.treeLeaf.deleteMany({
+            where: { poolId: this.poolId, status: 'pending', index: { gte: index } },
+        });
+        this.loaded = false; // force a clean rebuild from confirmed leaves on the next request
+        if (count > 0) console.warn(`[tree/rollback] pool=${this.poolId} rolled back ${count} pending leaf(ves) >= ${index}; in-memory tree invalidated`);
     }
 
     /** Fetch a stored pending leaf (for the browser's /tree/retry recovery). */
