@@ -24,5 +24,9 @@
   "devDependencies": {
     "eslint": "^9",
     "eslint-config-next": "15.1.0"
+  },
+  "optionalDependencies": {
+    "@napi-rs/simple-git-linux-x64-gnu": "0.1.22",
+    "@napi-rs/simple-git-linux-x64-musl": "0.1.22"
   }
 }
