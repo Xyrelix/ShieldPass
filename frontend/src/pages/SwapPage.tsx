@@ -43,17 +43,6 @@ const stagger = {
 };
 
 
-const NIGERIAN_BANKS = [
-  { code: "044", name: "Access Bank", domain: "accessbankplc.com" },
-  { code: "050", name: "Ecobank", domain: "ecobank.com" },
-  { code: "011", name: "First Bank", domain: "firstbanknigeria.com", logoUrl: "https://raw.githubusercontent.com/ridbay/nigerian-banks/master/src/logos/first-bank-of-nigeria.png" },
-  { code: "058", name: "GTBank", domain: "gtbank.com" },
-  { code: "50211", name: "Kuda", domain: "kuda.com" },
-  { code: "50515", name: "Moniepoint", domain: "moniepoint.com" },
-  { code: "999992", name: "OPay", domain: "opayweb.com" },
-  { code: "033", name: "UBA", domain: "ubagroup.com" },
-  { code: "057", name: "Zenith Bank", domain: "zenithbank.com" },
-];
 
 export default function SwapPage() {
   const navigate = useNavigate();
