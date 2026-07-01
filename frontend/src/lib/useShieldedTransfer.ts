@@ -1,11 +1,25 @@
 import { useState } from "react";
 import { Buffer } from "buffer";
 import {
-    buildTransferInput, prove, ownerOf, noteCommitment, randomField,
-    encryptNote, decodeAddress, type Compliance,
-} from "@shieldpass/sdk";
+    buildTransferInput,
+} from "@shieldpass/sdk/dist/circuitInputs";
+import {
+    prove,
+} from "@shieldpass/sdk/dist/groth16Prover";
+import {
+    ownerOf,
+    noteCommitment,
+    type Compliance,
+} from "@shieldpass/sdk/dist/notes";
+import {
+    encryptNote,
+    decodeAddress,
+    randomField,
+} from "@shieldpass/sdk/dist/identity";
 import { api } from "./api";
 import { useSession, type ShieldedNote } from "./session";
+import { assetByCode } from "./assets";
+import { useInsertProof } from "./useInsertProof";
 
 const buf = (u8: Uint8Array): Buffer => Buffer.from(u8);
 const hex = (u8: Uint8Array) => Array.from(u8).map((b) => b.toString(16).padStart(2, "0")).join("");
@@ -16,6 +30,7 @@ export type TransferStatus = "idle" | "resolving" | "fetching-path" | "loading-c
 
 export function useShieldedTransfer(apiBaseUrl: string) {
     const session = useSession();
+    const { insertProof } = useInsertProof();
     const [status, setStatus] = useState<TransferStatus>("idle");
     const [error, setError] = useState<string | null>(null);
 
@@ -30,16 +45,17 @@ export function useShieldedTransfer(apiBaseUrl: string) {
         return { owner: BigInt(id.owner), encPub: fromHex(id.encPub) };
     }
 
-    const send = async (recipient: string, sendAmount: bigint): Promise<boolean> => {
+    const send = async (recipient: string, sendAmount: bigint, assetCode?: string): Promise<string | null> => {
         setError(null);
         try {
             if (!session.identity) throw new Error("Shielded key locked — unlock it to send privately.");
             if (!session.wallet || !session.address) throw new Error("Wallet not connected.");
-            const escrowId = import.meta.env.VITE_ESCROW_CONTRACT_ID as string;
+            const asset = assetByCode(assetCode ?? session.notes[0]?.asset ?? "XLM");
+            if (!asset) throw new Error("Asset is not configured.");
             const sk = session.identity.sk;
 
-            const note = session.notes.find((n) => BigInt(n.amount) >= sendAmount);
-            if (!note) throw new Error("No single shielded note covers this amount.");
+            const note = session.notes.find((n) => n.asset === asset.code && BigInt(n.amount) >= sendAmount);
+            if (!note) throw new Error(`No single shielded ${asset.code} note covers this amount.`);
             const compliance: Compliance = {
                 hardware_attested: BigInt(note.compliance.hardware_attested),
                 bvn_verified: BigInt(note.compliance.bvn_verified),
@@ -50,7 +66,8 @@ export function useShieldedTransfer(apiBaseUrl: string) {
             const { owner: recipient_owner, encPub } = await resolveRecipient(recipient);
 
             setStatus("fetching-path");
-            const res = await fetch(`${apiBaseUrl}/tree/path/${note.leafIndex}`);
+            // Pool-scoped: the membership path must come from THIS asset's tree.
+            const res = await fetch(`${apiBaseUrl}/tree/path/${note.leafIndex}?pool=${encodeURIComponent(asset.poolContractId)}`);
             if (!res.ok) throw new Error("Could not fetch membership path.");
             const { siblings, indices, root } = await res.json();
 
@@ -75,14 +92,17 @@ export function useShieldedTransfer(apiBaseUrl: string) {
             const outChange = fieldDec(bundle.publicSignals[2]);
 
             setStatus("submitting");
-            await session.wallet.invoke(escrowId, "shielded_transfer", {
+            const transferRes = await session.wallet.invoke(asset.poolContractId, "shielded_transfer", {
                 proof_a: buf(bundle.proof.a), proof_b: buf(bundle.proof.b), proof_c: buf(bundle.proof.c),
                 public_signals: bundle.publicSignals.map(buf),
             });
 
-            // insert both output notes into the tree (trustlessly, via the indexer)
-            await api.treeInsert(outRecipient);
-            const { index: changeIndex } = await api.treeInsert(outChange);
+            // Insert both output notes into the tree using client-side proving
+            // (sequential to avoid racing the index counter).
+            setStatus("submitting");
+            const { index: recipientIndex } = await insertProof(outRecipient, (s) => setStatus(s as TransferStatus), asset.poolContractId);
+            const { index: changeIndex } = await insertProof(outChange, (s) => setStatus(s as TransferStatus), asset.poolContractId);
+            void recipientIndex;
 
             // deliver the encrypted note blob to the recipient
             const plaintext = new TextEncoder().encode(JSON.stringify({
@@ -97,7 +117,21 @@ export function useShieldedTransfer(apiBaseUrl: string) {
             const changeNotes: ShieldedNote[] = changeAmount > 0n ? [{
                 amount: changeAmount.toString(), asset: note.asset, randomness: change_randomness.toString(),
                 leafIndex: changeIndex, compliance: note.compliance,
+                confirmed: true, // insertProof above already landed the change leaf on-chain
             }] : [];
+
+            // Deliver a SELF-addressed blob for the change note too, so our own balance is
+            // recoverable from the blob store after a logout/wipe or on a new device. Without
+            // this, change notes live only in localStorage and are lost when the session is reset.
+            if (changeAmount > 0n) {
+                const changePlain = new TextEncoder().encode(JSON.stringify({
+                    amount: changeAmount.toString(), randomness: change_randomness.toString(),
+                    compliance: note.compliance, asset: note.asset,
+                }));
+                const enc = encryptNote(session.identity.encPublic, changePlain);
+                await api.postNoteBlob({ commitment: outChange, ephemeralPub: hex(enc.ephemeralPublic), ciphertext: hex(enc.ciphertext) });
+            }
+
             session.set({ notes: [...session.notes.filter((n) => n !== note), ...changeNotes] });
 
             // sanity: the recipient commitment we delivered must match the proof output
@@ -106,12 +140,12 @@ export function useShieldedTransfer(apiBaseUrl: string) {
             void ownerOf;
 
             setStatus("done");
-            return true;
+            return transferRes.hash;
         } catch (err: any) {
             console.error("[useShieldedTransfer]", err);
             setError(err?.message || "transfer failed");
             setStatus("error");
-            return false;
+            return null;
         }
     };
 

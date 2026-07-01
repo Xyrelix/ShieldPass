@@ -1,29 +1,26 @@
 name: Backend CI
 
-# Build + test gate for the backend. Deployment itself is handled natively by
-# Render (it watches the fork's main branch and auto-deploys on push) — this
-# workflow only verifies the code compiles and tests pass.
-
 on:
   push:
     branches: [main]
     paths:
       - "backend/**"
       - "SDK/**"
+      - "package.json"
+      - "package-lock.json"
       - ".github/workflows/backendci.yml"
   pull_request:
     paths:
       - "backend/**"
       - "SDK/**"
+      - "package.json"
+      - "package-lock.json"
       - ".github/workflows/backendci.yml"
 
 jobs:
   build-test:
     runs-on: ubuntu-latest
 
-    # Ephemeral Postgres for the test run — the Prisma 7 client connects via the
-    # @prisma/adapter-pg driver, so tests need a real database. This keeps CI
-    # self-contained (no external Neon credentials, no prod data mutation).
     services:
       postgres:
         image: postgres:16
@@ -40,9 +37,8 @@ jobs:
           --health-retries 5
 
     env:
-      # Prisma reads this both at generate time (prisma.config.ts) and at runtime
-      # (the pg adapter in src/db.ts). Local Postgres → sslmode=disable.
       NEON_CONNECTION_STRING: postgresql://postgres:postgres@localhost:5432/shieldpass_test?sslmode=disable
+      FIAT_MODE: mock
 
     steps:
       - uses: actions/checkout@v4
@@ -50,37 +46,23 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
+          cache: npm
 
-      # The backend depends on the SDK via `file:../SDK`, and SDK/dist is gitignored,
-      # so the SDK must be compiled first.
-      - name: Build SDK
-        working-directory: SDK
-        run: |
-          npm install --no-audit --no-fund
-          npx tsc
-          # backend imports `@shieldpass/sdk/dist/reusable_kyc.json`. The compiled
-          # circuit is committed in the frontend; make it available to the SDK dist.
-          cp ../frontend/public/reusable_kyc.json dist/reusable_kyc.json
-
-      - name: Install backend
-        working-directory: backend
+      - name: Install workspace
         run: npm install --no-audit --no-fund
 
-      # Prisma 7 no longer emits the client into node_modules — it's generated into
-      # backend/src/generated/prisma (gitignored), so this MUST run before tsc.
-      - name: Generate Prisma client
-        working-directory: backend
-        run: npx prisma generate
+      - name: Build SDK
+        run: npm run build:sdk
 
-      # Create the schema in the ephemeral Postgres so the tests have tables.
+      - name: Generate Prisma client
+        run: npm run prisma:generate
+
       - name: Push schema to test database
         working-directory: backend
         run: npx prisma db push
 
-      - name: Type-check & build
-        working-directory: backend
-        run: npm run build
+      - name: Build backend
+        run: npm run build:backend
 
-      - name: Test
-        working-directory: backend
-        run: npm test
+      - name: Test backend
+        run: npm run test:backend

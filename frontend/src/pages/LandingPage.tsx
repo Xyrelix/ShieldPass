@@ -1,6 +1,5 @@
 import ScrollHero from "../components/ui/ethereal";
 
-import LoginButton from "../components/LoginButton";
 import { Icons } from "../components/ui/icons";
 import { motion, useInView } from "motion/react";
 import { useRef, useState, useEffect } from "react";
@@ -196,8 +195,12 @@ export default function LandingPage() {
           action: (
             <div className="space-y-5">
               <div className="flex flex-wrap items-center gap-3">
-                <Link to="/onboarding" className={btnPrimary}>Get Started</Link>
-                <LoginButton className={btnGhost} />
+                {/* Single entry point: /onboarding handles BOTH sign-up (new email) and
+                    login (existing email + PIN), deriving the same PIN-based shielded
+                    identity either way. A separate login path that derived the identity
+                    differently was removed — it would have handed returning users the
+                    wrong shielded key and hidden their balance. */}
+                <Link to="/onboarding" className={btnPrimary}>Log in / Sign up</Link>
               </div>
               <div className="flex flex-wrap gap-2">
                 <Pill>Stellar Testnet</Pill>

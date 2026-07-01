@@ -1,13 +1,19 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import ShieldedKeyGate from "../components/ShieldedKeyGate";
 import { motion } from "motion/react";
 import { Buffer } from "buffer";
-import { noteCommitment, fieldToBytes32, type Compliance } from "@shieldpass/sdk";
+import { fieldToBytes32 } from "@shieldpass/sdk/dist/groth16Prover";
+import { noteCommitment, type Compliance } from "@shieldpass/sdk/dist/notes";
 import { api } from "../lib/api";
 import { useSession } from "../lib/session";
 import { useSwapProof } from "../lib/useSwapProof";
+import { useInsertProof } from "../lib/useInsertProof";
 import ShieldedBalance from "../components/ShieldedBalance";
 import ErrorNotice from "../components/ErrorNotice";
+import { SUPPORTED_ASSETS, assetByCode, formatUnits, parseUnits } from "../lib/assets";
+import { useWalletBalance } from "../lib/useWalletBalance";
+import { addressToField } from "@shieldpass/sdk/dist/stellar";
 
 const buf = (u8: Uint8Array): Buffer => Buffer.from(u8);
 
@@ -30,25 +36,39 @@ export default function DepositPage() {
   const navigate = useNavigate();
   const session = useSession();
   const swapProof = useSwapProof(import.meta.env.VITE_API_URL as string);
+  const { insertProof } = useInsertProof();
 
   const [mode, setMode] = useState<Mode>("shield");
+  const [assetCode, setAssetCode] = useState<string>(SUPPORTED_ASSETS[0]?.code ?? "XLM");
   const [amount, setAmount] = useState("");
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState("");
   const [error, setError] = useState<unknown>(null);
-  const [success, setSuccess] = useState<string | null>(null);
+  const [success, setSuccess] = useState<{ message: string; txHash?: string } | null>(null);
 
-  const poolAsset = session.notes[0]?.asset ?? "XLM";
+  const shieldedAssets = Array.from(new Set(session.notes.map((n) => n.asset || "XLM")));
+  const selectedAsset = assetByCode(assetCode) ?? SUPPORTED_ASSETS[0];
+
+  const { balance: walletBalance, loading: walletLoading } = useWalletBalance(
+    mode === "shield" ? assetCode : "",
+    session.address,
+  );
+  const shieldedTotal = session.notes
+    .filter((n) => (n.asset || "XLM") === assetCode)
+    .reduce((sum, n) => sum + BigInt(n.amount), 0n);
+  const shieldedBalanceStr = formatUnits(shieldedTotal, selectedAsset?.decimals ?? 7, 4);
 
   function switchMode(next: Mode) {
     if (busy) return;
     setMode(next);
+    if (next === "unshield" && shieldedAssets.length > 0) setAssetCode(shieldedAssets[0]);
+    if (next === "shield" && SUPPORTED_ASSETS.length > 0) setAssetCode(SUPPORTED_ASSETS[0].code);
     setError(null); setSuccess(null); setAmount("");
   }
 
   // ── Shield: wallet -> private pool ──
   async function handleShield(amt: bigint) {
-    const escrowId = import.meta.env.VITE_ESCROW_CONTRACT_ID as string;
+    if (!selectedAsset) throw new Error("Asset is not configured.");
     if (!session.identity) throw new Error("Shielded key locked — unlock it to shield funds.");
     const compliance: Compliance = {
       hardware_attested: 1n,
@@ -60,36 +80,41 @@ export default function DepositPage() {
     const commitment = noteCommitment(amt, session.identity.owner, BigInt(randomness), compliance);
 
     setStatus("Approve the shielding on your device…");
-    await session.wallet!.invoke(escrowId, "deposit", {
+    const depositRes = await session.wallet!.invoke(selectedAsset.poolContractId, "deposit", {
       user: session.address,
       amount: amt,
       note_commitment: buf(fieldToBytes32(commitment)),
     });
 
-    setStatus("Adding your note to the shielded tree…");
-    const { index } = await api.treeInsert(commitment.toString());
+    // Deposit confirmed on-chain. Run the merkle_insert proof in the browser:
+    // assign index → prove in Web Worker → submit to backend → confirm on-chain.
+    // Pool-scoped so the leaf lands in THIS asset's tree.
+    const { index: leafIndex } = await insertProof(commitment.toString(), setStatus, selectedAsset.poolContractId);
 
     session.set({
       notes: [...session.notes, {
-        amount: amt.toString(), asset: poolAsset, randomness, leafIndex: index,
+        amount: amt.toString(), asset: selectedAsset.code, randomness, leafIndex,
         compliance: { hardware_attested: "1", bvn_verified: session.bvnVerified ? "1" : "0", good_standing: "1" },
+        confirmed: true, // insertProof above already landed this leaf on-chain
       }],
     });
-    setSuccess(`Shielded ${amt.toString()} ${poolAsset} into your private balance.`);
-    api.notify({ email: session.email, type: "SHIELD", title: "Shielded funds", amount: amt.toString(), asset: poolAsset }).catch(() => {});
+    setSuccess({ message: `Shielded ${formatUnits(amt, selectedAsset.decimals, 4)} ${selectedAsset.code} into your private balance.`, txHash: depositRes.hash });
+    api.notify({ email: session.email, type: "SHIELD", title: "Shielded funds", amount: formatUnits(amt, selectedAsset.decimals, 4), asset: selectedAsset.code, txHash: depositRes.hash }).catch(() => {});
   }
 
   // ── Unshield: private pool -> wallet ──
   async function handleUnshield(amt: bigint) {
-    const escrowId = import.meta.env.VITE_ESCROW_CONTRACT_ID as string;
-    const note = session.notes.find((n) => BigInt(n.amount) >= amt);
-    if (!note) throw new Error("No single shielded note covers this amount. Try a smaller amount.");
+    if (!selectedAsset) throw new Error("Asset is not configured.");
+    const note = session.notes.find((n) => n.asset === selectedAsset.code && BigInt(n.amount) >= amt);
+    if (!note) throw new Error(`No single shielded ${selectedAsset.code} note covers this amount. Try a smaller amount.`);
 
-    const pr = await swapProof.generate(note, amt, { accountNumber: 0n, salt: BigInt(randomField()) }, false);
+    // Bind the proof to the on-chain recipient (the user's own wallet) so the relayer
+    // cannot redirect the unshielded crypto elsewhere.
+    const pr = await swapProof.generate(note, amt, { accountNumber: 0n, salt: BigInt(randomField()) }, false, addressToField(session.address!));
     if (!pr) throw new Error(swapProof.error || "Proof generation failed.");
 
     setStatus("Approve the unshield on your device…");
-    await session.wallet!.invoke(escrowId, "unshield", {
+    const unshieldRes = await session.wallet!.invoke(selectedAsset.poolContractId, "unshield", {
       proof_a: buf(pr.proof.a),
       proof_b: buf(pr.proof.b),
       proof_c: buf(pr.proof.c),
@@ -99,22 +124,23 @@ export default function DepositPage() {
 
     setStatus("Updating your balance…");
     const changeCommitment = BigInt("0x" + Buffer.from(pr.publicSignals[1]).toString("hex")).toString();
-    const { index } = await api.treeInsert(changeCommitment);
+    const { index } = await insertProof(changeCommitment, setStatus, selectedAsset.poolContractId);
     const changeNotes = BigInt(pr.changeNote.amount) > 0n ? [{
       amount: pr.changeNote.amount, asset: note.asset, randomness: pr.changeNote.randomness,
       leafIndex: index, compliance: note.compliance,
+      confirmed: true, // insertProof above already landed the change leaf on-chain
     }] : [];
     session.set({ notes: [...session.notes.filter((n) => n !== note), ...changeNotes] });
-    setSuccess(`Unshielded ${amt.toString()} ${note.asset} back to your wallet.`);
-    api.notify({ email: session.email, type: "UNSHIELD", title: "Unshielded to wallet", amount: amt.toString(), asset: note.asset }).catch(() => {});
+    setSuccess({ message: `Unshielded ${formatUnits(amt, selectedAsset.decimals, 4)} ${note.asset} back to your wallet.`, txHash: unshieldRes.hash });
+    api.notify({ email: session.email, type: "UNSHIELD", title: "Unshielded to wallet", amount: formatUnits(amt, selectedAsset.decimals, 4), asset: note.asset, txHash: unshieldRes.hash }).catch(() => {});
   }
 
   async function handleSubmit() {
     setError(null); setSuccess(null);
-    if (!import.meta.env.VITE_ESCROW_CONTRACT_ID) { setError(new Error("Missing contract config.")); return; }
+    if (!selectedAsset) { setError(new Error("Missing asset contract config.")); return; }
     if (!session.wallet || !session.address) { setError(new Error("Wallet not connected. Please log in again.")); return; }
     let amt: bigint;
-    try { amt = BigInt(amount.trim()); } catch { setError(new Error("Enter a whole-number amount.")); return; }
+    try { amt = parseUnits(amount, selectedAsset.decimals); } catch (err) { setError(err); return; }
     if (amt <= 0n) { setError(new Error("Amount must be greater than zero.")); return; }
 
     try {
@@ -171,8 +197,13 @@ export default function DepositPage() {
         {success ? (
           <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
             className="border border-emerald-500/20 bg-emerald-500/[0.03] p-4 rounded-2xl mb-6 text-emerald-300 text-sm">
-            {success}
-            <button onClick={() => navigate(isShield ? "/withdraw" : "/dashboard")} className="ml-2 underline underline-offset-2 text-emerald-200">
+            <span>{success.message}</span>
+            {success.txHash && (
+              <a href={`https://stellar.expert/explorer/testnet/tx/${success.txHash}`} target="_blank" rel="noopener noreferrer" className="ml-2 inline-flex items-center gap-0.5 text-emerald-400/70 hover:text-emerald-300 transition-colors text-xs font-mono" title="View on Stellar Explorer">
+                ↗
+              </a>
+            )}
+            <button onClick={() => navigate(isShield ? "/withdraw" : "/dashboard")} className="ml-3 underline underline-offset-2 text-emerald-200">
               {isShield ? "Withdraw now →" : "View balance →"}
             </button>
           </motion.div>
@@ -180,11 +211,35 @@ export default function DepositPage() {
 
         <motion.div variants={fadeUp} className="bg-gradient-to-br from-blue-900/30 to-indigo-900/20 backdrop-blur-xl border border-blue-500/20 shadow-2xl rounded-3xl p-6 space-y-5 font-display text-blue-50">
           <div>
-            <label className="text-white/40 text-xs font-mono tracking-wider uppercase">
-              {isShield ? `Amount (${poolAsset})` : "Amount to unshield"}
-            </label>
+            <label className="text-white/40 text-xs font-mono tracking-wider uppercase">Asset</label>
+            <select
+              value={assetCode}
+              onChange={(e) => setAssetCode(e.target.value as "XLM" | "USDC")}
+              className="mt-2 w-full bg-white/[0.03] border border-white/10 rounded-xl px-4 py-3 text-white outline-none focus:border-indigo-500/40 transition-colors"
+            >
+              {(isShield ? SUPPORTED_ASSETS.map((a) => a.code) : shieldedAssets).map((code) => (
+                <option key={code} value={code} className="bg-neutral-900">{code}</option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <div className="flex items-baseline justify-between">
+              <label className="text-white/40 text-xs font-mono tracking-wider uppercase">
+                Amount ({selectedAsset?.code ?? assetCode})
+              </label>
+              <span className="text-[11px] text-white/35">
+                {isShield
+                  ? walletLoading
+                    ? "Loading balance…"
+                    : walletBalance != null
+                    ? `Wallet: ${walletBalance} ${assetCode}`
+                    : null
+                  : `Shielded: ${shieldedBalanceStr} ${assetCode}`}
+              </span>
+            </div>
             <input
-              type="number" min="0" inputMode="numeric" value={amount}
+              type="number" min="0" inputMode="decimal" value={amount}
               onChange={(e) => setAmount(e.target.value)} placeholder="0"
               className="mt-2 w-full bg-white/[0.03] border border-white/10 rounded-xl px-4 py-3 text-white text-lg outline-none focus:border-indigo-500/40 transition-colors"
             />
@@ -197,9 +252,11 @@ export default function DepositPage() {
               : <>A zero-knowledge proof is generated in your browser, then the pool sends the crypto to your smart wallet. The note you spend stays private.</>}
           </div>
 
+          <ShieldedKeyGate />
+
           <button
             onClick={handleSubmit}
-            disabled={busy || !amount || (session.onboarded && !session.wallet)}
+            disabled={busy || !amount || (session.onboarded && !session.wallet) || !session.identity}
             className="w-full py-3.5 rounded-xl bg-indigo-600 text-white font-medium hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
           >
             {busy

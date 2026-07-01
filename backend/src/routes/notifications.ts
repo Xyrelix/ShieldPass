@@ -4,14 +4,14 @@ import { prisma } from '../db';
 const router = Router();
 
 const TYPES = new Set([
-    'FAUCET', 'SHIELD', 'UNSHIELD', 'WITHDRAW_FIAT', 'SEND_PUBLIC', 'SEND_SHIELDED', 'RECEIVE_SHIELDED', 'PAYOUT_SETTLED',
+    'FAUCET', 'SHIELD', 'UNSHIELD', 'WITHDRAW_FIAT', 'SEND_PUBLIC', 'SEND_SHIELDED', 'RECEIVE_SHIELDED', 'RECEIVE_PUBLIC', 'PAYOUT_SETTLED',
 ]);
 
 /** Server-side helper so other routes (faucet, payout) can log notifications. */
-export async function notify(email: string, type: string, title: string, extra?: { body?: string; amount?: string; asset?: string }) {
+export async function notify(email: string, type: string, title: string, extra?: { body?: string; amount?: string; asset?: string; txHash?: string }) {
     if (!email || !TYPES.has(type)) return;
     try {
-        await prisma.notification.create({ data: { email, type, title, body: extra?.body, amount: extra?.amount, asset: extra?.asset } });
+        await prisma.notification.create({ data: { email, type, title, body: extra?.body, amount: extra?.amount, asset: extra?.asset, txHash: extra?.txHash } });
     } catch (e) {
         console.error('[notify] failed:', e);
     }
@@ -19,9 +19,9 @@ export async function notify(email: string, type: string, title: string, extra?:
 
 // POST /notifications — record an action (client posts on success).
 router.post('/', async (req, res) => {
-    const { email, type, title, body, amount, asset } = req.body || {};
+    const { email, type, title, body, amount, asset, txHash } = req.body || {};
     if (!email || !TYPES.has(type) || !title) return res.status(400).json({ error: 'email, valid type and title are required.' });
-    await notify(String(email), String(type), String(title), { body, amount, asset });
+    await notify(String(email), String(type), String(title), { body, amount, asset, txHash });
     res.json({ ok: true });
 });
 

@@ -1,7 +1,8 @@
 import { useEffect, useRef } from "react";
-import { decryptNote } from "@shieldpass/sdk";
+import { decryptNote } from "@shieldpass/sdk/dist/identity";
 import { api } from "./api";
 import { useSession } from "./session";
+import { assetByCode } from "./assets";
 
 const fromHex = (s: string) => Uint8Array.from(s.match(/.{2}/g)!.map((b) => parseInt(b, 16)));
 
@@ -34,10 +35,16 @@ export function useNoteScanner(apiBaseUrl: string, onReceived?: (amount: string,
                         continue; // not addressed to us
                     }
                     try {
-                        const { index } = await api.treeIndexOf(blob.commitment);
+                        // Resolve the commitment in THIS note's asset pool/tree.
+                        const noteAsset = String(note.asset ?? "XLM");
+                        const pool = assetByCode(noteAsset)?.poolContractId;
+                        const { index } = await api.treeIndexOf(blob.commitment, pool);
                         const added = session.addNote({
-                            amount: String(note.amount), asset: String(note.asset ?? "XLM"),
+                            amount: String(note.amount), asset: noteAsset,
                             randomness: String(note.randomness), leafIndex: index, compliance: note.compliance,
+                            // The scanner only finds notes already inserted in the tree (treeIndexOf
+                            // resolved), so they're confirmed/spendable — not "settling".
+                            confirmed: true,
                         });
                         if (added) onRef.current?.(String(note.amount), String(note.asset ?? "XLM"));
                     } catch {

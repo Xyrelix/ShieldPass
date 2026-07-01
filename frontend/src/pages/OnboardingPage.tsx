@@ -4,8 +4,11 @@ import { motion } from "framer-motion";
 import { api } from "../lib/api";
 import { useSession } from "../lib/session";
 import { makeWallet } from "../lib/smartAccount";
-import { deriveIdentity } from "../lib/shieldedKey";
 import { humanizeError } from "@shieldpass/sdk/dist/errors";
+import { deriveSeedFromPassword, deriveIdentityFromSeed } from "../lib/shieldedKey";
+import { unlockBankVault } from "../lib/bankVault";
+import type { ShieldedIdentity } from "@shieldpass/sdk/dist/identity";
+import { proveAndConfirm } from "../lib/useInsertProof";
 
 import { AnimatedLayout } from "../components/ui/animated-characters-login-page";
 
@@ -54,7 +57,7 @@ export default function OnboardingPage() {
 
       let wallet, credentialId, address, secretSalt, merkleRoot, bvnVerified = false;
       let note: import('../lib/session').ShieldedNote | null = null;
-      let identity: import('@shieldpass/sdk').ShieldedIdentity;
+      let identity: ShieldedIdentity;
       const toHex = (u8: Uint8Array) => Array.from(u8).map((b) => b.toString(16).padStart(2, '0')).join('');
 
       if (check?.ok && check.passkeyKeyId && check.smartWalletAddress) {
@@ -63,7 +66,10 @@ export default function OnboardingPage() {
         await wallet.connectWallet(check.passkeyKeyId, check.smartWalletAddress); // Prompts Face ID / Touch ID
         credentialId = check.passkeyKeyId;
         address = check.smartWalletAddress;
-        identity = await deriveIdentity(credentialId, pin, email); // same identity re-derived
+        // Re-derive shielded identity from PIN — no second passkey prompt.
+        const seed = await deriveSeedFromPassword(pin, email);
+        identity = deriveIdentityFromSeed(seed);
+        await unlockBankVault(seed, email);
 
         const reissue = await api.reissueSalt({ email, pin });
         secretSalt = reissue.secretSalt;
@@ -76,9 +82,12 @@ export default function OnboardingPage() {
         const res = await wallet.createWallet("ShieldPass", email);
         credentialId = res.credentialId;
         address = res.contractId;
-        identity = await deriveIdentity(credentialId, pin, email);
-
         // publish the shielded identity so others can send by email; faucet note is owned by us.
+        // Derive shielded identity from PIN — one passkey prompt total (just createWallet above).
+        const seed = await deriveSeedFromPassword(pin, email);
+        identity = deriveIdentityFromSeed(seed);
+        await unlockBankVault(seed, email);
+
         const linkRes = await api.linkWallet({
           email, pin, smartWalletAddress: res.contractId, passkeyKeyId: res.credentialId,
           shieldedOwner: identity.owner.toString(), shieldedEncPub: toHex(identity.encPublic), shieldedAddress: identity.address,
@@ -92,7 +101,15 @@ export default function OnboardingPage() {
             randomness: linkRes.faucetNote.randomness,
             leafIndex: linkRes.faucetNote.leafIndex,
             compliance: linkRes.faucetNote.compliance,
+            confirmed: false, // will flip to true once the proof lands on-chain
           };
+          // Generate and submit the merkle_insert proof in the browser (fire-and-forget).
+          // If the browser closes mid-proof, the session auto-retry effect will pick it
+          // up on the next page load via /tree/retry/:index.
+          const faucetIndex = linkRes.faucetNote.leafIndex;
+          proveAndConfirm(faucetIndex, linkRes.faucetNote.circuitInput)
+            .then(() => session.confirmNote(faucetIndex))
+            .catch((err) => console.warn('[onboarding] faucet proof failed:', err));
         }
       }
 

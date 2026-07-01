@@ -1,12 +1,15 @@
-import { useEffect, useState } from "react";
+﻿import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "motion/react";
 import { api } from "../lib/api";
 import { useSession } from "../lib/session";
+import ShieldedKeyGate from "../components/ShieldedKeyGate";
 import { useSwapProof } from "../lib/useSwapProof";
 import ErrorNotice from "../components/ErrorNotice";
 import { Buffer } from "buffer";
 import type { BankAccount, Quote } from "../types";
+import { SUPPORTED_ASSETS as SUPPORTED_SWAP_ASSETS, assetByCode, parseUnits, formatUnits } from "../lib/assets";
+import { addBank, loadBanks } from "../lib/bankVault";
 
 const buf = (u8: Uint8Array): Buffer => Buffer.from(u8);
 // Random 254-bit field element (decimal) for the per-swap bank blinding salt.
@@ -37,11 +40,6 @@ const stagger = {
   },
 };
 
-const SUPPORTED_ASSETS = [
-  { code: "XLM", label: "XLM — Stellar Lumens", sac: import.meta.env.VITE_XLM_SAC as string | undefined },
-  { code: "USDC", label: "USDC — USD Coin", sac: import.meta.env.VITE_USDC_SAC as string | undefined },
-  { code: "NGNC", label: "NGNC — Naira Coin", sac: import.meta.env.VITE_NGNC_SAC as string | undefined },
-].filter((a): a is { code: string; label: string; sac: string } => !!a.sac);
 
 const NIGERIAN_BANKS = [
   { code: "044", name: "Access Bank", domain: "accessbankplc.com" },
@@ -61,12 +59,12 @@ export default function SwapPage() {
   const swapProof = useSwapProof(import.meta.env.VITE_API_URL as string);
 
   // Swap State
-  const [assetType, setAssetType] = useState(SUPPORTED_ASSETS[0]?.code ?? "");
+  const [assetType, setAssetType] = useState<string>(SUPPORTED_SWAP_ASSETS[0]?.code ?? "");
   const [cryptoAmount, setCryptoAmount] = useState("");
   const [quote, setQuote] = useState<Quote | null>(null);
   const [quoteLoading, setQuoteLoading] = useState(false);
   const [actionError, setActionError] = useState<unknown>(null);
-  const [swapSuccess, setSwapSuccess] = useState<string | null>(null);
+  const [swapSuccess, setSwapSuccess] = useState<{ message: string; txHash?: string } | null>(null);
   const [swapping, setSwapping] = useState(false);
 
   // Bank Account State
@@ -90,16 +88,22 @@ export default function SwapPage() {
 
   const proving = swapProof.status === "fetching-path" || swapProof.status === "loading-circuit" || swapProof.status === "generating";
 
+  const selectedSwapAsset = assetByCode(assetType);
+  const shieldedSwapTotal = session.notes
+    .filter((n) => (n.asset || "XLM") === assetType)
+    .reduce((sum, n) => sum + BigInt(n.amount), 0n);
+  const shieldedSwapBalance = formatUnits(shieldedSwapTotal, selectedSwapAsset?.decimals ?? 7, 4);
+
   useEffect(() => {
     if (session.email) {
-      // ZERO-STORAGE ARCHITECTURE: Read banks from local device storage
-      const localBanks = JSON.parse(localStorage.getItem(`banks_${session.email}`) || '[]');
-      setBanks(localBanks);
-      if (localBanks.length > 0 && !selectedBankId) {
-        setSelectedBankId(localBanks[0].id);
-      }
+      loadBanks(session.email)
+        .then((saved) => {
+          setBanks(saved);
+          if (saved.length > 0 && !selectedBankId) setSelectedBankId(saved[0].id);
+        })
+        .catch(() => setBanks([]));
     }
-  }, [session.email]);
+  }, [session.email, session.identity]);
 
   useEffect(() => {
     const val = Number(cryptoAmount);
@@ -107,7 +111,7 @@ export default function SwapPage() {
       setQuote(null);
       return;
     }
-    const token = SUPPORTED_ASSETS.find(a => a.code === assetType);
+    const token = SUPPORTED_SWAP_ASSETS.find(a => a.code === assetType);
     if (!token) return;
 
     setQuoteLoading(true);
@@ -132,7 +136,6 @@ export default function SwapPage() {
     try {
       setAddingBank(true);
 
-      // ZERO-STORAGE ARCHITECTURE: Save to local device storage, not the DB
       const newBank = {
         id: Math.random().toString(36).slice(2),
         bankName,
@@ -141,9 +144,8 @@ export default function SwapPage() {
         isDefault: false,
       };
 
-      const updatedBanks = [...banks, newBank];
+      const updatedBanks = await addBank(session.email, newBank);
       setBanks(updatedBanks);
-      localStorage.setItem(`banks_${session.email}`, JSON.stringify(updatedBanks));
 
       setSelectedBankId(newBank.id);
       setShowAddBank(false);
@@ -203,9 +205,8 @@ export default function SwapPage() {
       return;
     }
 
-    const token = SUPPORTED_ASSETS.find(a => a.code === assetType);
-    const escrowId = import.meta.env.VITE_ESCROW_CONTRACT_ID as string;
-    if (!token || !escrowId) {
+    const token = SUPPORTED_SWAP_ASSETS.find(a => a.code === assetType);
+    if (!token) {
       setActionError("Missing smart contract config.");
       return;
     }
@@ -216,10 +217,10 @@ export default function SwapPage() {
       if (!session.wallet || !session.address) {
         throw new Error("Wallet not connected. Please log in again.");
       }
-      const swapAmt = BigInt(cryptoAmount);
-      const currentNote = session.notes.find((n) => BigInt(n.amount) >= swapAmt);
+      const swapAmt = parseUnits(cryptoAmount, token.decimals);
+      const currentNote = session.notes.find((n) => n.asset === token.code && BigInt(n.amount) >= swapAmt);
       if (!currentNote) {
-        throw new Error("No single shielded note covers this amount. Shield more, or withdraw a smaller amount.");
+        throw new Error(`No single shielded ${token.code} note covers this amount. Shield more, or withdraw a smaller amount.`);
       }
       const selectedBank = banks.find(b => b.id === selectedBankId);
       if (!selectedBank) throw new Error("Bank details not found locally.");
@@ -228,7 +229,7 @@ export default function SwapPage() {
       //    the contract verifies the proof on-chain. Spends session.note, mints a change note.
       const pr = await swapProof.generate(
         currentNote,
-        BigInt(cryptoAmount),
+        swapAmt,
         { accountNumber: BigInt(selectedBank.accountNumber.replace(/\D/g, "") || "0"), salt: randomSalt() },
         quote.requireBvn,
       );
@@ -236,7 +237,7 @@ export default function SwapPage() {
 
       // 2. Submit confidential_swap through the smart account (passkey-signed, gasless).
       //    The deployed contract's spec encodes Vec<BytesN<32>> from an array of 32-byte Buffers.
-      const swapRes = await session.wallet.invoke(escrowId, "confidential_swap", {
+      const swapRes = await session.wallet.invoke(token.poolContractId, "confidential_swap", {
         proof_a: buf(pr.proof.a),
         proof_b: buf(pr.proof.b),
         proof_c: buf(pr.proof.c),
@@ -258,6 +259,7 @@ export default function SwapPage() {
         tokenAddress: token.sac,
         assetCode: token.code,
         cryptoAmount: Number(cryptoAmount),
+        cryptoAmountUnits: swapAmt.toString(),
         onChainSwapId,
         nullifier: pr.nullifier,
         changeCommitment,
@@ -267,17 +269,26 @@ export default function SwapPage() {
       if (exec.changeLeafIndex !== null) {
         const changeNotes = BigInt(pr.changeNote.amount) > 0n ? [{
           amount: pr.changeNote.amount,
-          asset: currentNote.asset,
+          asset: token.code,
           randomness: pr.changeNote.randomness,
           leafIndex: exec.changeLeafIndex,
           compliance: currentNote.compliance,
+          confirmed: true, // change leaf already inserted on-chain (changeLeafIndex resolved)
         }] : [];
         session.set({ notes: [...session.notes.filter((n) => n !== currentNote), ...changeNotes] });
       }
 
-      setSwapSuccess(`Success! ${exec.message}`);
+      setSwapSuccess({ message: `Success! ${exec.message}`, txHash: swapRes.hash });
       setCryptoAmount("");
       setQuote(null);
+      api.notify({
+        email: session.email,
+        type: "WITHDRAW_FIAT",
+        title: "Withdrawn to Naira",
+        amount: formatUnits(swapAmt, token.decimals, 4),
+        asset: token.code,
+        txHash: swapRes.hash,
+      }).catch(() => {});
     } catch (err) {
       setActionError(err);
     } finally {
@@ -308,7 +319,14 @@ export default function SwapPage() {
 
         {swapSuccess ? (
           <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="border border-green-500/20 bg-green-500/[0.02] p-6 rounded-2xl mb-6 text-center">
-            <p className="text-green-400 font-medium">{swapSuccess}</p>
+            <p className="text-green-400 font-medium">
+              {swapSuccess.message}
+              {swapSuccess.txHash && (
+                <a href={`https://stellar.expert/explorer/testnet/tx/${swapSuccess.txHash}`} target="_blank" rel="noopener noreferrer" className="ml-2 inline-flex items-center gap-0.5 text-green-400/60 hover:text-green-300 transition-colors text-xs font-mono" title="View on Stellar Explorer">
+                  ↗
+                </a>
+              )}
+            </p>
             <button onClick={() => navigate("/dashboard")} className="mt-4 text-xs bg-white/5 hover:bg-white/10 px-4 py-2 rounded-lg transition-all font-mono">View Dashboard</button>
           </motion.div>
         ) : null}
@@ -318,6 +336,7 @@ export default function SwapPage() {
           <div className="space-y-1.5">
             <div className="flex justify-between items-center px-1">
               <span className="text-xs text-white/50 font-medium uppercase tracking-wider">You Sell</span>
+              <span className="text-[11px] text-white/35">Shielded: {shieldedSwapBalance} {assetType}</span>
             </div>
             <div className="flex bg-white/5 backdrop-blur-md border border-white/10 rounded-xl p-2 focus-within:border-indigo-400/50 transition-all shadow-lg">
               <input
@@ -329,14 +348,8 @@ export default function SwapPage() {
                 className="bg-white/10 border border-white/10 rounded-lg px-3 py-2 text-white font-semibold outline-none cursor-pointer hover:bg-white/20 transition-colors"
                 value={assetType} onChange={(e) => setAssetType(e.target.value)}
               >
-                {SUPPORTED_ASSETS.map((a) => <option key={a.code} value={a.code} className="bg-zinc-900">{a.code}</option>)}
+                {SUPPORTED_SWAP_ASSETS.map((a) => <option key={a.code} value={a.code} className="bg-zinc-900">{a.code} - {a.name}</option>)}
               </select>
-            </div>
-          </div>
-
-          <div className="flex justify-center -my-3 relative z-10">
-            <div className="bg-[#0d1117] border border-white/10 rounded-full p-2 shadow-xl">
-              <svg className="w-5 h-5 text-white/40" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 14l-7 7m0 0l-7-7m7 7V3" /></svg>
             </div>
           </div>
 
@@ -352,6 +365,11 @@ export default function SwapPage() {
               </span>
               <span className="px-3 py-1 text-white/60 font-semibold text-lg">NGN</span>
             </div>
+            {quote && (
+              <p className="text-xs text-white/35 px-1 pt-1">
+                1 {quote.assetCode} = NGN {quote.rate.toLocaleString(undefined, { maximumFractionDigits: 2 })} via {quote.source}
+              </p>
+            )}
             {quote && quote.requireBvn && !session.bvnVerified && (
               <p className="text-xs text-amber-400/80 px-1 pt-1">⚠️ This amount requires Tier 2 Identity Verification (BVN).</p>
             )}
@@ -466,9 +484,11 @@ export default function SwapPage() {
             )}
           </div>
 
+          <ShieldedKeyGate />
+
           <button
             onClick={() => handleSwap()}
-            disabled={swapping || !quote || !selectedBankId || quoteLoading || (session.onboarded && !session.wallet)}
+            disabled={swapping || !quote || !selectedBankId || quoteLoading || (session.onboarded && !session.wallet) || !session.identity}
             className="w-full font-semibold px-6 py-4 rounded-xl bg-white/10 backdrop-blur-md border border-white/20 hover:bg-white/20 hover:border-white/30 text-white shadow-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {swapping ? "Executing Swap..." :

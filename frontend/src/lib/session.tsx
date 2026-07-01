@@ -1,7 +1,8 @@
-import { createContext, useContext, useState, useEffect } from 'react'
+import { createContext, useContext, useState, useEffect, useRef } from 'react'
 import type { ReactNode } from 'react'
 import type { SmartAccountWalletClient } from '@shieldpass/sdk/dist/smartAccount'
-import type { ShieldedIdentity } from '@shieldpass/sdk'
+import type { ShieldedIdentity } from '@shieldpass/sdk/dist/identity'
+import { lockBankVault } from './bankVault'
 
 /** A shielded note the user owns (owner-based model; spent with the user's shielded key). */
 export interface ShieldedNote {
@@ -10,6 +11,7 @@ export interface ShieldedNote {
   randomness: string   // per-note uniqueness; needed (with the shielded key) to spend
   leafIndex: number
   compliance: { hardware_attested: string; bvn_verified: string; good_standing: string }
+  confirmed?: boolean  // undefined = unknown (legacy), false = proof pending, true = on-chain
 }
 
 interface SessionState {
@@ -31,7 +33,10 @@ export interface Session extends SessionState {
   onboarded: boolean
   set: (patch: Partial<SessionState>) => void
   addNote: (note: ShieldedNote) => boolean // functional append; dedupes by randomness; returns true if added
+  confirmNote: (leafIndex: number) => void  // mark a note as on-chain confirmed
   reset: () => void
+  /** Re-derive shielded identity from PIN after a page reload (no passkey prompt). */
+  unlockIdentityWithPin: (pin: string) => Promise<void>
 }
 
 const EMPTY: SessionState = {
@@ -69,9 +74,14 @@ const SessionCtx = createContext<Session | null>(null)
 
 export function SessionProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<SessionState>(loadPersisted)
+  // Notes that already existed when this provider mounted (i.e. survived a page reload).
+  // Only THESE need auto-retry — notes added during this session are handled by
+  // proveAndConfirm (fire-and-forget) and must NOT be retried concurrently.
+  const initialNoteIndices = useRef(new Set(loadPersisted().notes.map(n => n.leafIndex)))
 
-  // Re-hydrate + reconnect the wallet on page reload if a credentialId exists. Binding the kit to
-  // the stored credential/contract is silent (no WebAuthn prompt) — the prompt happens at signing.
+  // Reconnect the wallet client on page reload — silent, no WebAuthn prompt.
+  // Identity (shielded keys) is NOT rehydrated here; it is re-derived from PIN
+  // when the user next logs in or explicitly unlocks via unlockIdentityWithPin().
   useEffect(() => {
     if (state.credentialId && !state.wallet) {
       import('./smartAccount').then(({ makeWallet }) => {
@@ -83,6 +93,34 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       }).catch(console.error)
     }
   }, [state.credentialId, state.wallet, state.address])
+
+  // On mount, retry any notes that never landed on-chain (browser closed mid-proof).
+  // Re-runs when new notes are added (length change), but NOT when confirmed flips
+  // (avoids an infinite loop of re-triggering after marking notes confirmed).
+  // Only retries notes that existed BEFORE this session started — notes added during
+  // this session are being proved by proveAndConfirm (fire-and-forget) and must not
+  // be retried concurrently to avoid duplicate confirms.
+  useEffect(() => {
+    const unconfirmed = state.notes.filter(
+      n => n.confirmed !== true && initialNoteIndices.current.has(n.leafIndex)
+    )
+    if (unconfirmed.length === 0) return
+    let cancelled = false
+    import('./useInsertProof').then(({ retryPendingProofs }) => {
+      retryPendingProofs(unconfirmed).then(confirmedIndices => {
+        if (cancelled || confirmedIndices.length === 0) return
+        setState(s => {
+          const next = { ...s, notes: s.notes.map(n =>
+            confirmedIndices.includes(n.leafIndex) ? { ...n, confirmed: true } : n
+          )}
+          savePersisted(next)
+          return next
+        })
+      }).catch(() => {})
+    }).catch(() => {})
+    return () => { cancelled = true }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.notes.length])
 
   const value: Session = {
     ...state,
@@ -99,7 +137,45 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       })
       return added
     },
-    reset: () => { try { localStorage.removeItem(STORAGE_KEY) } catch { /* ignore */ } setState(EMPTY) },
+    confirmNote: (leafIndex: number) => {
+      setState(s => {
+        const next = { ...s, notes: s.notes.map(n => n.leafIndex === leafIndex ? { ...n, confirmed: true } : n) }
+        savePersisted(next)
+        return next
+      })
+    },
+    reset: () => {
+      try {
+        localStorage.removeItem(STORAGE_KEY)
+        // Reset scan cursors so the NEXT login re-scans the blob store from 0 and rebuilds
+        // the shielded balance. Notes are recoverable from encrypted blobs (faucet, received
+        // and change are all published), so wiping the local cache here is safe — but only if
+        // the scanner starts fresh; otherwise it resumes past already-seen blobs and misses them.
+        if (state.email) localStorage.removeItem(`shp_scan_cursor_${state.email}`)
+        if (state.address) {
+          localStorage.removeItem(`shieldpass_incoming_cursor_${state.address}`)
+          localStorage.removeItem(`shieldpass_incoming_seen_${state.address}`)
+        }
+      } catch { /* ignore */ }
+      lockBankVault(); setState(EMPTY)
+    },
+    unlockIdentityWithPin: async (pin: string) => {
+      const email = state.email
+      if (!email) throw new Error('No account in this session — log in from the start screen.')
+      const { deriveSeedFromPassword, deriveIdentityFromSeed } = await import('./shieldedKey')
+      const { unlockBankVault } = await import('./bankVault')
+      const seed = await deriveSeedFromPassword(pin, email)
+      const identity = deriveIdentityFromSeed(seed)
+      // Guard against a wrong PIN: a mismatched PIN silently derives a DIFFERENT (but
+      // valid-looking) identity that can't decrypt the user's notes or spend them. The
+      // shp_ address is persisted at onboarding, so verify the derived identity matches
+      // before committing it — otherwise reject so the UI can show "incorrect PIN".
+      if (state.shieldedAddress && identity.address !== state.shieldedAddress) {
+        throw new Error('Incorrect PIN — could not unlock your shielded key.')
+      }
+      await unlockBankVault(seed, email)
+      setState(s => { const next = { ...s, identity }; savePersisted(next); return next })
+    },
   }
   return <SessionCtx.Provider value={value}>{children}</SessionCtx.Provider>
 }

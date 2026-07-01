@@ -63,10 +63,13 @@ export interface BankAccount {
 
 export interface Quote {
   tokenAddress: string;
+  assetCode: string;
   tokenLabel: string;
   cryptoAmount: number;
   rate: number;
   nairaAmount: number;
+  source: string;
+  updatedAt: string;
   requireBvn: boolean;
   tier2ThresholdNaira: number;
 }
@@ -74,8 +77,15 @@ export interface Quote {
 export interface SwapRecord {
   id: string;
   tokenAddress: string;
+  assetCode: string;
+  tokenLabel: string;
   cryptoAmount: number;
   nairaAmount: number;
+  cryptoAmountUnits: string;
+  nairaAmountKobo: string;
+  quoteRateNaira: number;
+  quoteSource: string;
+  quotedAt: string | null;
   status: string;
   swapId: string | null;
   txHash: string | null;

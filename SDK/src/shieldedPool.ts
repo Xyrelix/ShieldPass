@@ -48,7 +48,24 @@ export class ShieldedPoolClient {
 
     /** Admin queues a note commitment funded from the pool (no public transfer). */
     async faucetSeed(noteCommitment: Uint8Array, admin: Keypair): Promise<string> {
-        return this.invokeKeypair(admin, 'faucet_seed', bytesScVal(noteCommitment));
+        const hash = await this.invokeKeypair(admin, 'faucet_seed', bytesScVal(noteCommitment));
+        // Wait for the tx to be committed before returning. The insert simulation
+        // checks Pending(commitment) — if faucetSeed hasn't landed yet, insert panics.
+        await this.waitForLanding(hash);
+        return hash;
+    }
+
+    /** Poll until a tx hash is confirmed on-chain (or throw on failure/timeout). */
+    async waitForLanding(hash: string, timeoutMs = 180_000): Promise<void> {
+        const deadline = Date.now() + timeoutMs;
+        while (Date.now() < deadline) {
+            const r = await this.server.getTransaction(hash);
+            if (r.status === rpc.Api.GetTransactionStatus.SUCCESS) return;
+            if (r.status === rpc.Api.GetTransactionStatus.FAILED)
+                throw new Error(`[ShieldedPoolClient] tx ${hash} failed on-chain`);
+            await new Promise(resolve => setTimeout(resolve, 1500));
+        }
+        throw new Error(`[ShieldedPoolClient] tx ${hash} not confirmed within ${timeoutMs}ms`);
     }
 
     /** Trustless tree append: verifies a merkle_insert proof on-chain. */
@@ -116,16 +133,31 @@ export class ShieldedPoolClient {
     }
 
     private async invokeKeypair(kp: Keypair, method: string, ...args: xdr.ScVal[]): Promise<string> {
-        const info = await this.server.getAccount(kp.publicKey());
-        const account = new Account(kp.publicKey(), info.sequenceNumber());
-        let tx = new TransactionBuilder(account, { fee: BASE_FEE, networkPassphrase: this.networkPassphrase })
-            .addOperation(new Contract(this.contractId).call(method, ...args)).setTimeout(30).build();
-        const sim = await this.server.simulateTransaction(tx);
-        if (!rpc.Api.isSimulationSuccess(sim)) throw new Error(`[ShieldedPoolClient] ${method} sim failed: ${JSON.stringify(sim)}`);
-        tx = rpc.assembleTransaction(tx, sim).build();
-        tx.sign(kp);
-        const sent = await this.server.sendTransaction(tx);
-        return sent.hash;
+        const MAX_ATTEMPTS = 6;
+        let lastErr: Error = new Error(`[ShieldedPoolClient] sendTransaction overloaded (${method}) — all retries exhausted`);
+        for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+            if (attempt > 0) await new Promise(r => setTimeout(r, 3000 * attempt));
+            const info = await this.server.getAccount(kp.publicKey());
+            const account = new Account(kp.publicKey(), info.sequenceNumber());
+            let tx = new TransactionBuilder(account, { fee: BASE_FEE, networkPassphrase: this.networkPassphrase })
+                .addOperation(new Contract(this.contractId).call(method, ...args)).setTimeout(300).build();
+            const sim = await this.server.simulateTransaction(tx);
+            if (!rpc.Api.isSimulationSuccess(sim)) throw new Error(`[ShieldedPoolClient] ${method} sim failed: ${JSON.stringify(sim)}`);
+            tx = rpc.assembleTransaction(tx, sim).build();
+            tx.sign(kp);
+            const sent = await this.server.sendTransaction(tx);
+            if (sent.status === 'ERROR') {
+                const detail = (sent as any).errorResult ? JSON.stringify((sent as any).errorResult) : 'unknown';
+                throw new Error(`[ShieldedPoolClient] sendTransaction rejected (${method}): ${detail}`);
+            }
+            if (sent.status === 'DUPLICATE') return sent.hash;
+            if (sent.status === 'TRY_AGAIN_LATER') {
+                lastErr = new Error(`[ShieldedPoolClient] sendTransaction overloaded (${method}) — attempt ${attempt + 1}/${MAX_ATTEMPTS}`);
+                continue;
+            }
+            return sent.hash;
+        }
+        throw lastErr;
     }
 
     /** keypair (backend) or passkey (browser smart wallet) signing. */

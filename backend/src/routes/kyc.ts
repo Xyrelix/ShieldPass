@@ -1,6 +1,9 @@
 import { Router } from 'express';
-import { TrustedIssuer, isValidSorobanAddress, noteCommitment } from '@shieldpass/sdk';
+import { TrustedIssuer, isValidSorobanAddress, noteCommitment, encryptNote } from '@shieldpass/sdk';
 import { prisma } from '../db';
+
+const fromHex = (s: string) => Uint8Array.from(s.match(/.{2}/g)!.map((b) => parseInt(b, 16)));
+const toHex = (u8: Uint8Array) => Buffer.from(u8).toString('hex');
 import { treeService } from '../services/tree';
 import { notify } from './notifications';
 import { verifyBvn } from '../services/bvn';
@@ -12,7 +15,7 @@ const issuer = new TrustedIssuer();
 
 // Faucet seed is configurable (no hardcoded amount). Change FAUCET_NOTE_AMOUNT /
 // FAUCET_NOTE_ASSET in the backend env to adjust the onboarding seed someday.
-const FAUCET_NOTE_AMOUNT = BigInt(process.env.FAUCET_NOTE_AMOUNT || '500');
+const FAUCET_NOTE_AMOUNT = BigInt(process.env.FAUCET_NOTE_AMOUNT || '5000000000'); // 500 XLM in stroops (7 decimals)
 const FAUCET_NOTE_ASSET = process.env.FAUCET_NOTE_ASSET || 'XLM';
 
 // Re-issue a compliance leaf from the user's current Tier flags and persist it.
@@ -55,6 +58,12 @@ router.post('/link-wallet', async (req, res) => {
 
     // PRIVATE FAUCET (owner-based): seed a note OWNED by the user's shielded owner. The note
     // is backed by the pool; the user holds the shielded key (sk) needed to spend it.
+    //
+    // Sign-in stays fast (~1-2s): we ONLY do DB/tree work synchronously here (reserve the
+    // tree index + build the browser's circuit input). Every relayer on-chain tx runs in a
+    // single background chain AFTER the response — serialized so they don't collide on the
+    // relayer's account sequence number. The browser starts generating its merkle_insert
+    // proof immediately; faucet_seed lands during that window, so /tree/confirm succeeds.
     let faucetNote = null;
     try {
       if (!shieldedOwner) throw new Error('no shielded owner published');
@@ -63,10 +72,11 @@ router.post('/link-wallet', async (req, res) => {
       const compliance = { hardware_attested: 1n, bvn_verified: 0n, good_standing: 1n };
       const commitment = noteCommitment(noteAmount, BigInt(shieldedOwner), randomness, compliance);
 
-      // Queue on-chain (faucet_seed) + advance the tree trustlessly (insert). No public transfer.
-      const { index } = await treeService.seedNote(commitment);
+      // Reserve the tree index + circuit input (DB/tree only — no chain I/O, no waiting).
+      const { index, circuitInput } = await treeService.faucetAssign(commitment);
 
       // The client keeps `randomness` (with their shielded key) to spend the note later.
+      // `circuitInput` is passed back so the browser can generate the merkle_insert proof.
       faucetNote = {
         amount: noteAmount.toString(),
         randomness: randomness.toString(),
@@ -74,9 +84,54 @@ router.post('/link-wallet', async (req, res) => {
         compliance: { hardware_attested: '1', bvn_verified: '0', good_standing: '1' },
         leafIndex: index,
         commitment: commitment.toString(),
+        circuitInput,
       };
-      console.log(`[kyc/link-wallet] seeded ${noteAmount} ${FAUCET_NOTE_ASSET} owner-based ZK Note at index ${index}.`);
-      await notify(email, 'FAUCET', `Welcome bonus received`, { amount: noteAmount.toString(), asset: FAUCET_NOTE_ASSET });
+      console.log(`[kyc/link-wallet] reserved ${noteAmount} ${FAUCET_NOTE_ASSET} owner-based ZK Note at index ${index}.`);
+
+      // Publish a SELF-addressed encrypted blob for the faucet note so the user's
+      // balance is recoverable from the blob store after a logout / localStorage wipe
+      // or on a new device. The shielded key is deterministic (PIN + email), so the
+      // note scanner re-discovers this note by trial-decrypting the blob. The plaintext
+      // shape MUST match what useNoteScanner expects (amount/randomness/compliance/asset).
+      try {
+        const plaintext = new TextEncoder().encode(JSON.stringify({
+          amount: noteAmount.toString(),
+          randomness: randomness.toString(),
+          compliance: { hardware_attested: '1', bvn_verified: '0', good_standing: '1' },
+          asset: FAUCET_NOTE_ASSET,
+        }));
+        const { ephemeralPublic, ciphertext } = encryptNote(fromHex(shieldedEncPub), plaintext);
+        await prisma.noteBlob.create({
+          data: { commitment: commitment.toString(), ephemeralPub: toHex(ephemeralPublic), ciphertext: toHex(ciphertext) },
+        });
+      } catch (blobErr) {
+        console.error('[kyc/link-wallet] faucet blob publish failed (note still usable this session):', blobErr);
+      }
+
+      // ── Background relayer chain (off the HTTP path, serialized by tx landing) ──
+      // 1. faucet_seed (registers the commitment — gas only) + pool funding (backs the note).
+      // 2. seedWalletFromEnv (tops the smart wallet up with tradeable tokens).
+      // Ordered so faucet_seed (the browser's dependency) lands first; the wallet seed,
+      // needed only for public swaps, comes last. Failures are logged, never thrown.
+      void (async () => {
+        try {
+          await treeService.settleFaucetOnChain(commitment);
+          const displayAmount = (Number(noteAmount) / 1e7).toString(); // stroops → XLM for display
+          await notify(email, 'FAUCET', `Welcome bonus received`, { amount: displayAmount, asset: FAUCET_NOTE_ASSET });
+        } catch (err) {
+          console.error('[kyc/link-wallet] faucet on-chain settle failed:', err);
+        }
+        try {
+          const results = await seedWalletFromEnv(smartWalletAddress);
+          for (const r of results) {
+            if (r.status === 'funded') console.log(`[kyc/link-wallet] seeded ${r.tokenId} -> ${smartWalletAddress} tx:${r.hash}`);
+            if (r.status === 'failed') console.error(`[kyc/link-wallet] seed failed for ${r.tokenId}:`, r.error);
+            if (r.status === 'skipped') console.log(`[kyc/link-wallet] seed skipped ${r.tokenId} (wallet already funded)`);
+          }
+        } catch (err) {
+          console.error('[kyc/link-wallet] seedWalletFromEnv threw:', err);
+        }
+      })();
     } catch (seedErr) {
       console.error('[kyc/link-wallet] private seeding failed:', seedErr);
     }
